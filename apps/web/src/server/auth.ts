@@ -1,6 +1,9 @@
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { jwt } from "better-auth/plugins";
+import { cimd } from "@better-auth/cimd";
+import { fetchClientMetadataResource } from "@better-auth/cimd/node";
+import { mcp } from "@better-auth/mcp";
 import { nextCookies } from "better-auth/next-js";
 import { Pool } from "pg";
 import { serverEnv } from "@openstockai/server/env";
@@ -18,6 +21,16 @@ export function authDatabase() {
     application_name: "openstockai-auth",
   }));
 }
+// Scopes an MCP client can be granted. The two inventory scopes are enforced by the MCP
+// server (every request needs read, write tools need write); offline_access allows refresh tokens.
+export const OAUTH_SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "offline_access",
+  "inventory:read",
+  "inventory:write",
+];
 export async function ownerExists() {
   const result = await authDatabase().query(`SELECT 1 FROM auth."user" LIMIT 1`);
   return result.rowCount !== 0;
@@ -30,6 +43,11 @@ function createAuth() {
     secret: env.BETTER_AUTH_SECRET,
     database: authDatabase(),
     trustedOrigins: [env.BETTER_AUTH_URL],
+    // The JWT plugin's /token route hands a session JWT to the browser. Session JWTs share the
+    // OAuth access tokens' signing keys, and nothing in the browser needs one: the web server
+    // mints them in-process with api.getToken. disabledPaths only blocks HTTP requests, so
+    // those server-side calls keep working.
+    disabledPaths: ["/token"],
     emailAndPassword: { enabled: true, minPasswordLength: 12 },
     rateLimit: { enabled: true, window: 60, max: 60, storage: "database" },
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
@@ -58,6 +76,8 @@ function createAuth() {
     },
     plugins: [
       jwt({
+        // Same reason: do not expose the session JWT in the set-auth-jwt response header.
+        disableSettingJwtHeader: true,
         jwks: { keyPairConfig: { alg: "EdDSA", crv: "Ed25519" } },
         jwt: {
           issuer: env.BETTER_AUTH_URL,
@@ -66,6 +86,18 @@ function createAuth() {
           definePayload: ({ user, session }) => ({ sub: user.id, sid: session.id }),
         },
       }),
+      // mcp() is the OAuth 2.1 provider (never register oauthProvider() as well). The login
+      // page is the app root, which renders the sign-in form and continues the OAuth flow.
+      // Dynamic Client Registration stays off (it is only enabled by explicit options);
+      // clients identify themselves with Client ID Metadata Documents instead. The default
+      // 30 s refreshTokenReuseInterval of mcp() is kept so a client can retry a lost refresh.
+      mcp({
+        loginPage: "/",
+        consentPage: "/consent",
+        resource: env.MCP_RESOURCE_URL,
+        scopes: OAUTH_SCOPES,
+      }),
+      cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" }),
       nextCookies(),
     ],
   });

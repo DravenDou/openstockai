@@ -109,3 +109,41 @@ test("server configuration rejects protocols, credentials in HTTP URLs and missi
     );
   }
 });
+
+test("MCP settings default to a loopback resource, stay disabled without a secret and validate when set", () => {
+  const valid = {
+    DATABASE_URL: "postgresql://user:secret@localhost/db",
+    BETTER_AUTH_URL: "http://localhost:3017",
+    API_BASE_URL: "http://api:8087",
+    BETTER_AUTH_SECRET: "s".repeat(32),
+    AGENT_SERVICE_SECRET: "a".repeat(32),
+  };
+  const defaults = serverEnv(valid);
+  assert.equal(defaults.MCP_RESOURCE_URL, "http://localhost:3100/mcp");
+  assert.equal(defaults.MCP_SERVICE_SECRET, undefined);
+  assert.equal(serverEnv({ ...valid, MCP_SERVICE_SECRET: "" }).MCP_SERVICE_SECRET, undefined);
+  assert.equal(
+    serverEnv({ ...valid, MCP_SERVICE_SECRET: "m".repeat(32) }).MCP_SERVICE_SECRET,
+    "m".repeat(32),
+  );
+  assert.equal(
+    serverEnv({ ...valid, MCP_RESOURCE_URL: "https://mcp.example.com/mcp" }).MCP_RESOURCE_URL,
+    "https://mcp.example.com/mcp",
+  );
+  for (const change of [
+    { MCP_SERVICE_SECRET: "private-secret" },
+    { MCP_RESOURCE_URL: "http://mcp.example.com/mcp" },
+    { MCP_RESOURCE_URL: "https://user:private-secret@mcp.example.com/mcp" },
+    { MCP_RESOURCE_URL: "https://mcp.example.com/mcp?x=1" },
+    { MCP_RESOURCE_URL: "https://mcp.example.com/mcp#frag" },
+  ]) {
+    assert.throws(
+      () => serverEnv({ ...valid, ...change }),
+      (error: Error) => {
+        assert.match(error.message, /Invalid configuration: MCP_/);
+        assert.ok(!error.message.includes("private-secret"));
+        return true;
+      },
+    );
+  }
+});

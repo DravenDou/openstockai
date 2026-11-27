@@ -14,6 +14,7 @@ const sections = [
   "restock",
   "settings",
   "agent-runs",
+  "consent",
 ];
 const withDetail = ["inventory", "purchases"];
 

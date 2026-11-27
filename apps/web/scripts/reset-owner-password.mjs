@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Resets the password of the single owner account and revokes all of its sessions.
+// Resets the password of the single owner account, revokes all of its sessions and disconnects
+// every connected MCP client (OAuth access tokens, refresh tokens and consents).
 //
 // Usage:
 //   pnpm owner:reset-password                       (prompts, input hidden)
@@ -25,7 +26,8 @@ function fail(message) {
   console.error(message);
   process.exit(1);
 }
-if (process.argv.length > 2) fail("This command takes no arguments. The password is read from stdin.");
+if (process.argv.length > 2)
+  fail("This command takes no arguments. The password is read from stdin.");
 const connectionString = process.env.AUTH_DATABASE_URL || process.env.DATABASE_URL;
 if (!connectionString) fail("Set DATABASE_URL (or AUTH_DATABASE_URL).");
 
@@ -82,8 +84,11 @@ const client = new pg.Client({ connectionString });
 await client.connect();
 try {
   await client.query("BEGIN");
-  const users = await client.query(`SELECT id, email FROM auth."user" ORDER BY "createdAt" LIMIT 2`);
-  if (users.rowCount === 0) throw new Error("No owner exists yet. Open the app and create the owner account first.");
+  const users = await client.query(
+    `SELECT id, email FROM auth."user" ORDER BY "createdAt" LIMIT 2`,
+  );
+  if (users.rowCount === 0)
+    throw new Error("No owner exists yet. Open the app and create the owner account first.");
   const owner = users.rows[0];
   const hash = await hashPassword(password);
   const updated = await client.query(
@@ -92,8 +97,21 @@ try {
   );
   if (updated.rowCount === 0) throw new Error("The owner has no email/password credential.");
   const revoked = await client.query(`DELETE FROM auth."session" WHERE "userId"=$1`, [owner.id]);
+  // OAuth tables exist only after migration 00003; skip quietly on an older database.
+  const counts = { oauthAccessToken: 0, oauthRefreshToken: 0, oauthConsent: 0 };
+  for (const table of Object.keys(counts)) {
+    const present = await client.query(`SELECT to_regclass($1) AS name`, [`auth."${table}"`]);
+    if (!present.rows[0].name) continue;
+    counts[table] = (
+      await client.query(`DELETE FROM auth."${table}" WHERE "userId"=$1`, [owner.id])
+    ).rowCount;
+  }
   await client.query("COMMIT");
-  console.log(`Password reset for ${owner.email}. Revoked ${revoked.rowCount} session(s).`);
+  console.log(
+    `Password reset for ${owner.email}. Revoked ${revoked.rowCount} session(s) and disconnected ` +
+      `${counts.oauthConsent} MCP client(s) (${counts.oauthAccessToken} access and ` +
+      `${counts.oauthRefreshToken} refresh token(s)).`,
+  );
 } catch (error) {
   await client.query("ROLLBACK").catch(() => undefined);
   fail(error instanceof Error ? error.message : "Password reset failed.");

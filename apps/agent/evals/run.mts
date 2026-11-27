@@ -54,13 +54,14 @@ function llmEnvironment() {
   return values;
 }
 
-function writeEnvFile(directory: string, llm: Record<string, string>) {
+function writeEnvFile(directory: string, llm: Record<string, string>, evalToken: string) {
   const initial = {
     COMPOSE_PROJECT_NAME: FIXTURE_PROJECT,
     WEB_PORT: ports.web,
     API_PORT: ports.api,
     POSTGRES_PORT: ports.postgres,
     EVAL_AGENT_PORT: ports.agent,
+    OPENSTOCK_EVAL_TOKEN: evalToken,
     ...llm,
   };
   writeFileSync(
@@ -118,15 +119,18 @@ async function main() {
       ],
       { cwd: root },
     );
+  const evalToken = randomBytes(32).toString("base64url");
   let exit = 1;
   try {
-    writeEnvFile(directory, llm);
+    writeEnvFile(directory, llm, evalToken);
     console.log(
       `Starting the isolated stack "${FIXTURE_PROJECT}" (ports ${Object.values(ports).join(", ")})...`,
     );
     if ((await compose(["up", "-d", "--build"])) !== 0)
       throw new Error("docker compose up failed.");
-    const base = `http://127.0.0.1:${ports.web}`;
+    // Better Auth trusts only BETTER_AUTH_URL (http://localhost:<port> in Compose), so the fixture
+    // must use the same host name for its Origin header.
+    const base = `http://localhost:${ports.web}`;
     const agentUrl = `http://127.0.0.1:${ports.agent}`;
     await waitFor("the web app", async () => (await fetch(`${base}/api/setup-status`)).ok);
     await waitFor(
@@ -141,7 +145,15 @@ async function main() {
     writeFileSync(fixturePath, JSON.stringify(fixture), { mode: 0o600 });
     exit = await run("pnpm", ["exec", "eve", "eval", "--url", agentUrl, ...evalArgs], {
       cwd: agentDir,
-      env: { ...process.env, OPENSTOCK_EVAL_FIXTURE: fixturePath },
+      env: {
+        ...process.env,
+        OPENSTOCK_EVAL_FIXTURE: fixturePath,
+        // Eve 1 reads /eve/v1/info before the run, which needs an operator credential. The eval
+        // stack's agent accepts this per-run bearer token (see agent/channels/eve.ts); evals still
+        // send the owner's cookie and service header on each message. `targetAuth` would require
+        // an HTTPS target, so the environment override is used.
+        EVE_EVAL_AUTH_TOKEN: evalToken,
+      },
     });
   } catch (error) {
     console.error((error as Error).message);

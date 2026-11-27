@@ -1,16 +1,16 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { ShieldAlert, ShieldQuestion } from "lucide-react";
-import type { ConversationInput } from "eve/react";
+import type { Interaction } from "eve/events";
 import { request } from "@openstockai/api-client/client";
 import { euro } from "@/shared/state/inventory";
 import { useInventory } from "@/shared/state/store";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
-import { summarizeApproval, type RefKind } from "../lib/approval-summary";
+import { optionLabel, summarizeInteraction, type RefKind } from "../lib/approval-summary";
 
-type InputRequest = ConversationInput;
+type InputRequest = Interaction;
 const resolved = new Map<string, string>();
 
 // Names come from the store when loaded, otherwise from a single read per ID.
@@ -67,16 +67,19 @@ export function ApprovalCard({
   disabled = false,
 }: {
   input: InputRequest;
-  onRespond: (requestId: string, optionId: string) => Promise<unknown>;
+  onRespond: (interactionId: string, optionId: string) => Promise<unknown>;
   disabled?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const lock = useRef(false);
-  const action = input.request.action;
-  const summary = summarizeApproval(
-    action.toolName,
-    action.input && typeof action.input === "object"
+  // A budget prompt asks about the session, not a call, so it has no tool to summarize.
+  const action = input.call;
+  const kind = input.request.kind;
+  const summary = summarizeInteraction(
+    kind,
+    action?.name ?? "",
+    action?.input && typeof action.input === "object"
       ? (action.input as Record<string, unknown>)
       : undefined,
   );
@@ -147,7 +150,7 @@ export function ApprovalCard({
       {summary.note && <p className="text-xs text-muted-foreground">{summary.note}</p>}
       <div className="flex flex-wrap gap-2">
         {input.request.options?.map((option) => {
-          const approve = option.id === "approve";
+          const approve = kind !== "budget" && option.id === "approve";
           return (
             <Button
               key={option.id}
@@ -159,7 +162,7 @@ export function ApprovalCard({
                 setBusy(true);
                 setError("");
                 try {
-                  await onRespond(input.request.requestId, option.id);
+                  await onRespond(input.interactionId, option.id);
                 } catch (error) {
                   setError((error as Error).message);
                 } finally {
@@ -168,7 +171,7 @@ export function ApprovalCard({
                 }
               }}
             >
-              {approve ? summary.confirm : option.id === "cancel" ? "Reject" : option.label}
+              {optionLabel(kind, option, summary)}
             </Button>
           );
         })}

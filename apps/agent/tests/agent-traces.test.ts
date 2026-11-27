@@ -129,7 +129,7 @@ test("the public Eve CLI reads real synthetic segments with pagination and sanit
   });
   await mkdir(join(root, "agent"));
   await writeFile(join(root, "agent/instructions.md"), "Synthetic trace reader test.");
-  await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { eve: "0.71.2" } }));
+  await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { eve: "1.5.0" } }));
   for (let i = 1; i <= 25; i++) {
     const id = i.toString(16).padStart(32, "0");
     const directory = join(root, ".eve/traces/v1", id, "segments");
@@ -197,7 +197,7 @@ test("no traces yet is an empty page, and an unknown trace is still a 404", asyn
   });
   await mkdir(join(root, "agent"));
   await writeFile(join(root, "agent/instructions.md"), "Synthetic empty trace test.");
-  await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { eve: "0.71.2" } }));
+  await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { eve: "1.5.0" } }));
   const empty = { items: [], total: 0, nextOffset: null, pricesConfigured: false };
   // The real CLI with no .eve/traces directory at all.
   assert.deepEqual(await readAgentTraces({ offset: 0 }, root), empty);

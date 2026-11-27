@@ -41,9 +41,11 @@ test("movement approvals display English names while retaining internal tool val
     ["return_in", "Customer return"],
   ]) {
     const input = {
+      interactionId: "interaction-test",
+      call: { callId: "call-test", name: "adjustStock", input: { type, quantity: 100 } },
       request: {
+        kind: "approval",
         prompt: "Confirm the movement",
-        action: { toolName: "adjustStock", input: { type, quantity: 100 } },
         options: [{ id: "approve", label: "approve" }],
       },
     };
@@ -54,18 +56,24 @@ test("movement approvals display English names while retaining internal tool val
     assert(html.includes(`>${label}</dd>`));
     assert(!html.includes(type));
     assert.match(html, /Approve/);
-    assert.equal(input.request.action.input.type, type);
+    assert.equal(input.call.input.type, type);
   }
 });
 
 test("destructive approvals are visibly marked and use a specific confirm label", () => {
   const input = {
+    interactionId: "interaction-test",
+    call: {
+      callId: "call-test",
+      name: "deleteSupplier",
+      input: { id: "550e8400-e29b-41d4-a716-446655440003" },
+    },
     request: {
+      kind: "approval",
       prompt: "Delete this supplier?",
-      action: { toolName: "deleteSupplier", input: { id: "550e8400-e29b-41d4-a716-446655440003" } },
       options: [
         { id: "approve", label: "approve" },
-        { id: "cancel", label: "cancel" },
+        { id: "deny", label: "deny" },
       ],
     },
   };
@@ -125,10 +133,13 @@ test("a domain failure returned by a tool is visible as Error, with trace input 
     role: "assistant",
     parts: [
       {
-        type: "dynamic-tool",
-        toolName: "adjustStock",
-        toolCallId: "call-test",
-        state: "output-available",
+        type: "tool",
+        name: "adjustStock",
+        callId: "call-test",
+        kind: "tool",
+        label: "adjustStock",
+        stepIndex: 0,
+        state: "completed",
         input: { quantity: 0.5 },
         output: { ok: false, error: { message: "Insufficient stock" } },
       },

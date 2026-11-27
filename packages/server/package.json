@@ -15,10 +15,10 @@
     "test:config": "tsx --test tests/config.test.ts tests/provider.test.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.72",
-    "@ai-sdk/openai": "4.0.84",
+    "@ai-sdk/anthropic": "4.0.110",
+    "@ai-sdk/openai": "4.0.125",
     "@openstockai/api-client": "workspace:*",
-    "ai": "7.0.128",
+    "ai": "7.0.183",
     "zod": "4.6.6"
   },
   "devDependencies": {

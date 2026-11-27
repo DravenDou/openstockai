@@ -16,6 +16,8 @@ export const ApiOnlySandbox = defineSandboxProvider({
       async resume() {
         throw new Error("This agent only allows API tools; the sandbox is disabled.");
       },
+      // Nothing is ever created, so there is nothing to delete.
+      async onSessionEnd() {},
     };
   },
 });

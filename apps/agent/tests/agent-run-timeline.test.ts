@@ -97,6 +97,52 @@ test("traceMetadata builds a status, model, step count and tool timeline without
   assert(!JSON.stringify(run).includes(private_));
 });
 
+test("traceMetadata reads Eve 1 spans: execute_tool names, gen_ai.tool.call.id and approvals", () => {
+  const eve1 = trace([
+    span("agent.step", 0, 200, {
+      "agent.usage.input_tokens": 5000,
+      "agent.usage.output_tokens": 200,
+      "agent.step.index": 0,
+    }),
+    span("execute_tool searchProducts", 20, 30, {
+      "gen_ai.tool.name": "searchProducts",
+      "gen_ai.tool.call.id": "call-read",
+      "agent.action.name": "searchProducts",
+      "agent.action.outcome": "completed",
+      "agent.step.index": 0,
+    }),
+    span(
+      "execute_tool adjustStock",
+      260,
+      10,
+      {
+        "gen_ai.tool.name": "adjustStock",
+        "gen_ai.tool.call.id": "call-write",
+        "agent.action.name": "adjustStock",
+        "agent.action.outcome": "failed",
+        "error.type": "ACTION_RESULT_FAILED",
+        "agent.step.index": 1,
+      },
+      { statusCode: 2 },
+    ),
+    span("agent.approval", 262, 5, {
+      "gen_ai.tool.call.id": "call-write",
+      "agent.action.name": "adjustStock",
+      "agent.approval.outcome": "approved",
+    }),
+  ]);
+  const run = traceMetadata(eve1);
+  assert.equal(run.toolCalls, 2);
+  assert.equal(run.status, "error");
+  assert.deepEqual(
+    run.timeline.map((event) => [event.name, event.approval, event.outcome, event.callId]),
+    [
+      ["searchProducts", null, "completed", "call-read"],
+      ["adjustStock", "approved", "failed", "call-write"],
+    ],
+  );
+});
+
 test("failing spans make the run an error and expose only a safe error code", () => {
   const failing = trace([
     span("agent.step", 0, 100, { "agent.step.index": 0 }, { statusCode: 2 }),
@@ -217,6 +263,41 @@ test("joinActions matches by id, falls back to order, and appends API-only write
   );
   assert.equal(fallback.length, 1);
   assert.equal(fallback[0].label, "Create product");
+});
+
+test("joinActions keeps the selectTools label and args instead of the identity read", () => {
+  const select = {
+    id: "t1",
+    kind: "tool" as const,
+    source: "trace" as const,
+    name: "selectTools",
+    label: null,
+    callId: "call-select",
+    args: "groups=catalog",
+    stepIndex: 0,
+    offsetMs: 0,
+    durationMs: 5,
+    startedAt: null,
+    outcome: "completed",
+    approval: null,
+    actionId: null,
+    errorCode: null,
+    errorMessage: null,
+  };
+  const joined = joinActions(
+    [select],
+    conversationId,
+    [
+      action("call-select", {
+        tool_name: "GET /v1/identity",
+        tool_input: {},
+        approval_status: "not_required",
+      }),
+    ],
+    { startMs: 0, endMs: 10_000 },
+  );
+  assert.equal(joined[0].label, "Select tools");
+  assert.equal(joined[0].args, "groups=catalog");
 });
 
 test("cost and status enrichment use configured prices and pending actions", () => {

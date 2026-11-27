@@ -1,14 +1,17 @@
 import { z } from "zod";
-import type { MessageStreamEvent } from "eve/client";
+import type { SessionStreamEvent } from "eve/client";
 
-export function chatError(events: readonly MessageStreamEvent[]) {
+export function chatError(events: readonly SessionStreamEvent[]) {
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
-    if (event.type === "turn.failed" || event.type === "session.failed") return event.data.message;
+    if (event.type === "turn.settled" && event.data.outcome === "failed")
+      return event.data.error?.message;
+    if (event.type === "session.ended" && event.data.outcome === "failed")
+      return event.data.error?.message;
+    // A later turn, or any other end of a turn, clears an earlier failure.
     if (
       event.type === "turn.started" ||
-      event.type === "turn.completed" ||
-      event.type === "turn.cancelled" ||
+      event.type === "turn.settled" ||
       event.type === "session.started"
     )
       return undefined;

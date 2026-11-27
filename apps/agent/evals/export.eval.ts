@@ -10,7 +10,7 @@ export default defineEval<typeof config>({
     });
     turn.calledTool("exportProductsCsv");
     turn.messageIncludes("/api/exports/products");
-    t.noFailedActions();
+    t.noFailedCalls();
     t.succeeded();
     await report(t, turn.sessionId, started);
   },

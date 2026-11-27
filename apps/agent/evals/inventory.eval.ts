@@ -12,7 +12,7 @@ export default defineEval<typeof config>({
     turn.calledTool("getLowStockProducts");
     turn.messageIncludes(/bolt/i);
     t.maxToolCalls(8);
-    t.noFailedActions();
+    t.noFailedCalls();
     t.succeeded();
     await report(t, turn.sessionId, started);
   },

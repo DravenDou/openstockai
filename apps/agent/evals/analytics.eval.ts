@@ -18,7 +18,7 @@ export default [
       const started = Date.now();
       const turn = await t.send(text, { headers: headers(t) });
       turn.calledTool(tool);
-      t.noFailedActions();
+      t.noFailedCalls();
       t.maxToolCalls(8);
       t.succeeded();
       await report(t, turn.sessionId, started);

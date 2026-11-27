@@ -9,7 +9,7 @@ export default defineEval<typeof config>({
       headers: headers(t),
     });
     turn.calledTool("getAuditLog");
-    t.noFailedActions();
+    t.noFailedCalls();
     t.succeeded();
     await report(t, turn.sessionId, started);
   },

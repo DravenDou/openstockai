@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/shared/ui/tooltip";
 import { euro, movementDate } from "@/shared/state/inventory";
 import { refreshInventory, useInventory } from "@/shared/state/store";
 import { useEveAgent } from "eve/react";
+import { activeTurn, openInteractions } from "eve/events";
 import type { ClientSessionState } from "eve/client";
 import { authClient } from "@/shared/auth/client";
 import {
@@ -81,7 +82,7 @@ function Conversation({ scope }: { scope: string }) {
     onFinish: (snapshot) => {
       void refreshInventory().catch((e) => toast.error((e as Error).message));
       if (settings.voice && "speechSynthesis" in window) {
-        const last = snapshot.data.messages.filter((m) => m.role === "assistant").at(-1);
+        const last = snapshot.messages.filter((m) => m.role === "assistant").at(-1);
         const text = last?.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
         if (text) {
           const speech = new SpeechSynthesisUtterance(text);
@@ -100,9 +101,11 @@ function Conversation({ scope }: { scope: string }) {
     },
     [],
   );
-  const thinking =
-    agent.status === "submitted" || agent.status === "streaming" || agent.status === "resuming";
-  const pending = Object.values(agent.data.inputs).filter((input) => input.status === "open");
+  const thinking = agent.status === "busy" || agent.status === "resuming";
+  // Unanswered approvals and budget prompts; an open request can already hold a submitted answer.
+  const pending = openInteractions(agent.view).filter(
+    (input) => input.request.kind !== "sign-in" && input.answer === undefined,
+  );
   const failures = turnFailures(agent.events);
   const error = agent.error?.message || chatError(agent.events);
   async function send(message = text) {
@@ -169,7 +172,7 @@ function Conversation({ scope }: { scope: string }) {
           </div>
           <ChatConversation className="mt-7" aria-label="Conversation with OpenStock AI">
             <ConversationContent className="pr-2 pb-3">
-              {agent.data.messages.length === 0 && (
+              {agent.messages.length === 0 && (
                 <div className="flex gap-4 py-8">
                   <AssistantAvatar />
                   <p className="text-sm leading-relaxed">
@@ -178,7 +181,7 @@ function Conversation({ scope }: { scope: string }) {
                   </p>
                 </div>
               )}
-              {agent.data.messages.map((message) => (
+              {agent.messages.map((message) => (
                 <ChatMessage
                   key={message.id}
                   message={message}
@@ -192,10 +195,12 @@ function Conversation({ scope }: { scope: string }) {
               ))}
               {pending.map((input) => (
                 <ApprovalCard
-                  key={input.request.requestId}
+                  key={input.interactionId}
                   input={input}
                   disabled={agent.status === "resuming"}
-                  onRespond={(requestId, optionId) => agent.respond([{ requestId, optionId }])}
+                  onRespond={(interactionId, optionId) =>
+                    agent.respond([{ interactionId, optionId }])
+                  }
                 />
               ))}
               {(sendError || error) && (
@@ -212,7 +217,7 @@ function Conversation({ scope }: { scope: string }) {
                   <span className="animate-pulse">
                     {agent.status === "resuming"
                       ? "Restoring conversation…"
-                      : agent.status === "submitted"
+                      : !activeTurn(agent.view)
                         ? "Connecting to OpenStock AI…"
                         : "OpenStock AI is working on your request…"}
                   </span>
@@ -314,7 +319,7 @@ function Conversation({ scope }: { scope: string }) {
               className="w-full text-xs"
               disabled={thinking || !!pending.length}
               onClick={() => {
-                agent.reset();
+                agent.newSession();
                 setSendError("");
               }}
             >

@@ -10,7 +10,7 @@ export default defineEval<typeof config>({
     });
     turn.calledTool("getProductBySku", { input: { sku: "EVAL-COLA" } }).soft();
     turn.messageIncludes(/unidades|stock|tienes|tiene/i);
-    t.noFailedActions();
+    t.noFailedCalls();
     t.succeeded();
     await report(t, turn.sessionId, started);
   },

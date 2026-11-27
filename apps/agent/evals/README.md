@@ -26,7 +26,13 @@ Evals cost tokens. `--check` and `--list` do not call the model. For what each e
    deliberately ambiguous names (two waters, two "North" warehouses), a low-stock item and a product
    whose description contains a prompt injection. Auto-approve is on.
 4. Runs `eve eval --url http://127.0.0.1:4373` with `OPENSTOCK_EVAL_FIXTURE` pointing at the fixture file
-   (owner session cookie and IDs; kept in the temp directory, mode 600).
+   (owner session cookie and IDs; kept in the temp directory, mode 600). The evals call the agent directly
+   with the owner's cookie but without the web proxy's service secret, so the runner generates a random
+   `OPENSTOCK_EVAL_TOKEN`, hands it to the eval stack's agent (`compose.eval.yaml`) and sends it as a bearer
+   token through `EVE_EVAL_AUTH_TOKEN` (Eve's `targetAuth` would need an HTTPS target). The agent's
+   `agent/channels/eve.ts` accepts that token in place of the service secret, and, for the bearer-only
+   `/eve/v1/info` read that Eve 1 makes before the run, as a service principal. Both paths exist only when
+   the variable is set, which no production configuration does.
 5. Always runs `docker compose -p openstockai-eval down -v` and deletes the temp directory
    (the project name is a constant, so it cannot remove your real stack).
 

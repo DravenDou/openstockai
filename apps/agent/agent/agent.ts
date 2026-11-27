@@ -1,39 +1,13 @@
-import { z } from "zod";
 import { defineAgent, defineDynamic } from "eve";
-import { principal } from "./lib/api";
-import { llmModel, inputTokenLimit, stepLimit } from "@openstockai/server/ai/model";
-import { APIError } from "@openstockai/api-client/client";
-import { availableTools } from "./lib/tool-selection";
+import { selectModel, sessionBudgetReached } from "./lib/model-selection";
 
 export default defineAgent({
-  model: defineDynamic({
-    events: {
-      "step.started": (event, ctx) => {
-        principal(ctx.session);
-        const turn = z
-          .object({
-            data: z.object({
-              turnId: z.string().max(200),
-              stepIndex: z.number().int().nonnegative().optional(),
-            }),
-          })
-          .parse(event).data;
-        if ((turn.stepIndex ?? 0) >= stepLimit())
-          throw new APIError(
-            "AI_STEP_LIMIT",
-            "Step limit reached. Check Agent runs: some operations may have completed. Do not repeat writes without checking their result.",
-            422,
-          );
-        return {
-          model: llmModel({
-            allowedToolNames: availableTools(ctx.session, turn.turnId),
-          }),
-          modelContextWindowTokens: inputTokenLimit(),
-        };
-      },
-    },
-  }),
-  compaction: { thresholdPercent: 0.75 },
-  limits: { maxInputTokensPerSession: 200_000, maxOutputTokensPerSession: 10_000 },
+  // Eve 1 runs this function before every ordinary model call (it replaced the step.started event).
+  model: defineDynamic((ctx) => selectModel(ctx)),
+  compaction: { threshold: 0.75 },
+  // Eve 1 pauses the turn with a budget prompt (continue or stop) when this returns true.
+  limits: {
+    sessionUsage: ({ window }) => sessionBudgetReached(window),
+  },
   defaultTools: false,
 });

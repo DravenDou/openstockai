@@ -127,7 +127,7 @@ More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | Auth     | Better Auth 1.7.7 (email and password, JWT plugin with EdDSA/Ed25519)                                        |
 | API      | Go 1.27.3, chi 5.3, pgx 5.11, goose 3.28 (migrations), sqlc 1.31 (queries), golang-jwt 5.3                   |
 | Database | PostgreSQL 18.6 with `pg_trgm`                                                                               |
-| Agent    | Eve 0.71.2, Vercel AI SDK 7 (`ai` 7.0.128), `@ai-sdk/openai` 4.0, `@ai-sdk/anthropic` 4.0, TOON 4.4, Zod 4.6 |
+| Agent    | Eve 1.5.0, Vercel AI SDK 7 (`ai` 7.0.183), `@ai-sdk/openai` 4.0.125, `@ai-sdk/anthropic` 4.0.110, TOON 4.4, Zod 4.6 |
 | Tooling  | pnpm 11.25 workspaces, Node 24, ESLint 9, Prettier 3.9, Docker Compose                                       |
 
 ## Quick start

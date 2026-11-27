@@ -13,7 +13,7 @@ export default defineEval<typeof config>({
       { headers: headers(t) },
     );
     turn.calledTool("recordPurchase");
-    t.noFailedActions();
+    t.noFailedCalls();
     t.succeeded();
     const page = await backend(t, "purchases-page?query=EVAL-INV-1001");
     assert.equal(page.items.length, 1);

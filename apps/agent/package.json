@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@toon-format/toon": "4.4.0",
-    "ai": "7.0.128",
-    "eve": "0.71.2",
+    "ai": "7.0.183",
+    "eve": "1.5.0",
     "zod": "4.6.6",
     "@openstockai/api-client": "workspace:*",
     "@openstockai/server": "workspace:*"

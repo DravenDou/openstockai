@@ -42,10 +42,17 @@ const errorCode = (attributes: Record<string, unknown>) => {
   const value = text(attributes, "error.type");
   return value && /^[\w.:-]{1,80}$/.test(value) ? value : null;
 };
+// Eve 1 names tool spans "execute_tool <tool>" (0.x named them "agent.action"); both are kept so
+// traces recorded before the upgrade still read. Framework tool spans carry the same attributes.
+const isActionSpan = (span: CliSpan) =>
+  span.name === "agent.action" || span.name.startsWith("execute_tool ");
+const callIdOf = (attributes: Record<string, unknown>) =>
+  text(attributes, "gen_ai.tool.call.id", "agent.action.call_id");
 // An owner rejecting an approval ends the tool span with this code; it is an expected outcome.
 const isDenial = (span: CliSpan) =>
-  span.name === "agent.action" &&
-  (span.attributes["error.type"] === "TOOL_EXECUTION_DENIED" ||
+  isActionSpan(span) &&
+  (span.attributes["agent.action.outcome"] === "rejected" ||
+    span.attributes["error.type"] === "TOOL_EXECUTION_DENIED" ||
     span.attributes["agent.action.error.code"] === "TOOL_EXECUTION_DENIED");
 const approvalOutcome = (outcome: string | null): TimelineEvent["approval"] =>
   outcome === "approved" ? "approved" : outcome ? "rejected" : null;
@@ -59,9 +66,9 @@ export function traceTimeline(spans: CliSpan[], start: bigint): TimelineEvent[] 
   const ordered = [...spans].sort((a, b) =>
     BigInt(a.startTimeNs) < BigInt(b.startTimeNs) ? -1 : 1,
   );
-  for (const span of ordered.filter((item) => item.name === "agent.action")) {
+  for (const span of ordered.filter(isActionSpan)) {
     const attributes = span.attributes;
-    const callId = text(attributes, "agent.action.call_id");
+    const callId = callIdOf(attributes);
     const outcome = text(attributes, "agent.action.outcome");
     const event: TimelineEvent = {
       id: span.spanId,
@@ -87,7 +94,7 @@ export function traceTimeline(spans: CliSpan[], start: bigint): TimelineEvent[] 
   }
   for (const span of ordered.filter((item) => item.name === "agent.approval")) {
     const attributes = span.attributes;
-    const callId = text(attributes, "agent.action.call_id");
+    const callId = callIdOf(attributes);
     const approval = approvalOutcome(text(attributes, "agent.approval.outcome"));
     const target = callId ? byCall.get(callId) : undefined;
     if (target) {
@@ -115,7 +122,7 @@ export function traceTimeline(spans: CliSpan[], start: bigint): TimelineEvent[] 
   }
   // Errors recorded on other spans (model calls, steps). Tool failures already appear above.
   for (const span of ordered) {
-    if (span.statusCode !== 2 || ["agent.action", "agent.approval"].includes(span.name)) continue;
+    if (span.statusCode !== 2 || isActionSpan(span) || span.name === "agent.approval") continue;
     // Parent spans repeat the failure of their children; keep the deepest ones.
     if (spans.some((child) => child.parentSpanId === span.spanId && child.statusCode === 2))
       continue;

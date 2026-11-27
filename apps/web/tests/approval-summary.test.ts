@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { purchaseTotal, summarizeApproval } from "../src/features/assistant/lib/approval-summary";
+import {
+  optionLabel,
+  purchaseTotal,
+  summarizeApproval,
+  summarizeInteraction,
+} from "../src/features/assistant/lib/approval-summary";
 import { toolLabels } from "../src/features/assistant/lib/chat";
 
 const id = "550e8400-e29b-41d4-a716-446655440003";
@@ -102,4 +107,15 @@ test("every write tool has a chat label", () => {
     "getStockValuation",
   ])
     assert.ok(toolLabels[tool], tool);
+});
+
+test("a budget prompt has its own title and keeps Eve's option labels", () => {
+  const summary = summarizeInteraction("budget", "", undefined);
+  assert.equal(summary.title, "Session token budget reached");
+  assert.equal(summary.destructive, false);
+  assert.equal(optionLabel("budget", { id: "approve", label: "Continue" }, summary), "Continue");
+  assert.equal(optionLabel("budget", { id: "deny", label: "Stop" }, summary), "Stop");
+  const tool = summarizeInteraction("approval", "archiveProduct", { id });
+  assert.equal(optionLabel("approval", { id: "approve", label: "Yes" }, tool), "Archive product");
+  assert.equal(optionLabel("approval", { id: "deny", label: "No" }, tool), "Reject");
 });

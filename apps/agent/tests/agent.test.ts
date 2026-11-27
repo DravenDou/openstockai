@@ -14,6 +14,18 @@ import { toolSelection, availableTools, enableToolGroups } from "../agent/lib/to
 import { product, adjustment } from "../agent/lib/schemas";
 import createProduct from "../agent/tools/createProduct";
 import config from "../agent/agent";
+import { emptySessionView } from "eve/events";
+import { readdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import clearHook, { writeTools } from "../agent/hooks/clear-catalog-cache";
+import {
+  selectModel,
+  SESSION_INPUT_TOKENS,
+  SESSION_OUTPUT_TOKENS,
+  sessionBudgetReached,
+} from "../agent/lib/model-selection";
+
+const DYNAMIC = Symbol.for("eve.dynamic");
 import getInventory from "../agent/tools/getInventory";
 import getInventorySummary from "../agent/tools/getInventorySummary";
 import getWarehouses from "../agent/tools/getWarehouses";
@@ -429,7 +441,7 @@ test("catalog cache is isolated by user, auth session and turn, and expires", as
   assert.equal(calls.filter((call) => call.url.pathname === "/v1/units").length, 6);
 });
 
-test("both successful and failed write attempts invalidate catalog cache", async (t) => {
+test("writes leave the catalog cache to the call.settled hook", async (t) => {
   const { calls, state } = mockAPI(t);
   const input = {};
   const productInput = product.parse({
@@ -438,13 +450,31 @@ test("both successful and failed write attempts invalidate catalog cache", async
     costPrice: "1.00",
     salePrice: "2.00",
   });
+  // Writes run in a workflow step where defineState is unavailable: they must not touch it.
   assert((await execute(getMeasurementUnits, input)).ok);
+  const cached = catalogCache.get();
+  t.mock.method(catalogCache, "update", () => {
+    throw new Error("defineState() is unavailable inside a 'use step' function");
+  });
   assert((await execute(createProduct, productInput)).ok);
-  assert((await execute(getMeasurementUnits, input)).ok);
   state.failWrite = true;
   assert.equal((await execute(createProduct, productInput)).ok, false);
+  assert.equal(catalogCache.get(), cached);
   assert((await execute(getMeasurementUnits, input)).ok);
-  assert.equal(calls.filter((call) => call.url.pathname === "/v1/units").length, 3);
+  assert.equal(calls.filter((call) => call.url.pathname === "/v1/units").length, 1);
+  t.mock.restoreAll();
+  // The hook knows every tool that writes: the ones whose files use the write() step helper.
+  const writers = (await readdir(new URL("../agent/tools/", import.meta.url)))
+    .filter((file) => file.endsWith(".ts"))
+    .filter((file) =>
+      readFileSync(new URL(`../agent/tools/${file}`, import.meta.url), "utf8").includes(
+        "lib/write",
+      ),
+    )
+    .map((file) => file.replace(/\.ts$/, ""))
+    .sort();
+  assert.deepEqual([...writeTools].sort(), writers);
+  assert(typeof clearHook.events?.["call.settled"] === "function");
 });
 
 test("filters go to Go, lookups paginate beyond their first page and schemas stay strict", async (t) => {
@@ -478,6 +508,20 @@ test("filters go to Go, lookups paginate beyond their first page and schemas sta
   assert.equal(schema(getStockMovements).safeParse({ since: "yesterday" }).success, false);
 });
 
+test("the session budget counts new input only, not prompt-cache reads", () => {
+  const w = (inputTokens: number, cacheReadTokens: number, outputTokens = 0) => ({
+    inputTokens,
+    cacheReadTokens,
+    outputTokens,
+  });
+  assert.equal(sessionBudgetReached(w(900_000, 800_000)), false);
+  assert.equal(sessionBudgetReached(w(900_000, 700_000)), true);
+  assert.equal(sessionBudgetReached(w(SESSION_INPUT_TOKENS - 1, 0)), false);
+  assert.equal(sessionBudgetReached(w(SESSION_INPUT_TOKENS, 0)), true);
+  assert.equal(sessionBudgetReached(w(0, 0, SESSION_OUTPUT_TOKENS - 1)), false);
+  assert.equal(sessionBudgetReached(w(0, 0, SESSION_OUTPUT_TOKENS)), true);
+});
+
 test("Eve resolves the configured provider with explicit budgets", async (t) => {
   t.mock.property(process, "env", {
     ...process.env,
@@ -486,27 +530,28 @@ test("Eve resolves the configured provider with explicit budgets", async (t) => 
     LLM_API_KEY: "test-key",
     LLM_MODEL: "test-model",
   });
-  assert.equal(config.limits?.maxInputTokensPerSession, 200_000);
-  assert.equal(config.limits?.maxOutputTokensPerSession, 10_000);
-  const resolver = config.model.events["step.started"];
-  assert(resolver);
-  const selection = await resolver(
-    { data: { turnId: "test-turn" } },
-    { session: ctx.session, model: null, channel: {}, messages: [] },
-  );
-  assert(typeof selection === "object" && selection !== null && "model" in selection);
+  const limit = config.limits?.sessionUsage;
+  assert(typeof limit === "function");
+  const usage = (inputTokens: number, outputTokens: number) => ({
+    inputTokens,
+    outputTokens,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  });
+  assert.equal(limit({ total: usage(0, 0), window: usage(199_999, 9_999) }), false);
+  assert.equal(limit({ total: usage(0, 0), window: usage(SESSION_INPUT_TOKENS, 0) }), true);
+  assert.equal(limit({ total: usage(0, 0), window: usage(0, SESSION_OUTPUT_TOKENS) }), true);
+  assert(config.model && typeof config.model === "object" && DYNAMIC in config.model);
+  const frame = { session: ctx.session, turn: { id: "test-turn" }, view: emptySessionView() };
+  const selection = selectModel(frame as never);
   assert(typeof selection.model !== "string");
   assert.equal(selection.model.modelId, "test-model");
   assert.equal(selection.model.provider, "openai-compatible.chat");
   assert.equal(selection.modelContextWindowTokens, 65536);
-  assert.throws(
-    () =>
-      resolver(
-        { data: { turnId: "test-turn", stepIndex: 32 } },
-        { session: ctx.session, model: null, channel: {}, messages: [] },
-      ),
-    { code: "AI_STEP_LIMIT" },
-  );
+  assert.throws(() => selectModel(frame as never, 32), { code: "AI_STEP_LIMIT" });
+  assert.throws(() => selectModel({ ...frame, turn: null } as never), {
+    code: "AI_TURN_REQUIRED",
+  });
 });
 
 test("tool calls Go with scoped JWT, stops at approval, never invents success", async () => {

@@ -123,8 +123,12 @@ export function joinActions(
   const apply = (event: TimelineEvent, action: RunAction) => {
     used.add(action.id);
     event.actionId = action.id;
-    event.label = operationLabel(action.tool_name);
-    event.args = compactArgs(action.tool_input);
+    // selectTools calls GET /v1/identity; the Go action must not rename or re-argument that row.
+    if (event.name === "selectTools") event.label = "Select tools";
+    else {
+      event.label = operationLabel(action.tool_name);
+      event.args = compactArgs(action.tool_input);
+    }
     event.approval = approvalFrom(action.approval_status) ?? event.approval;
     if (action.error && !event.errorMessage) event.errorMessage = action.error.slice(0, 300);
   };

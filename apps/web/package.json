@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
-    "ai": "7.0.128",
+    "ai": "7.0.183",
     "better-auth": "1.7.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "eve": "0.71.2",
+    "eve": "1.5.0",
     "lucide-react": "^1.52.0",
     "next": "16.4.5",
     "next-themes": "^0.4.6",

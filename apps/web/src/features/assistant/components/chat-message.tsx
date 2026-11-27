@@ -36,7 +36,9 @@ export function ChatMessage({
   if (
     !failure &&
     !message.parts.some(
-      (p) => p.type === "dynamic-tool" || ((p.type === "text" || p.type === "reasoning") && p.text),
+      (p) =>
+        (p.type === "tool" && !p.hidden) ||
+        ((p.type === "text" || p.type === "reasoning") && p.text),
     )
   )
     return null;
@@ -73,24 +75,22 @@ export function ChatMessage({
                   </MessageResponse>
                 </details>
               );
-            if (part.type !== "dynamic-tool") return null;
+            if (part.type !== "tool" || part.hidden) return null;
             const presentation = toolPresentation(part);
             return (
-              <Tool key={part.toolCallId} defaultOpen={presentation.state === "output-error"}>
+              <Tool key={part.callId} defaultOpen={presentation.state === "output-error"}>
                 <ToolHeader
                   type="dynamic-tool"
-                  toolName={part.toolName}
-                  title={toolLabels[part.toolName] || part.toolName}
+                  toolName={part.name}
+                  title={toolLabels[part.name] || part.name}
                   state={presentation.state}
                 />
                 <ToolContent>
                   <p className="break-all font-mono text-[11px] text-muted-foreground">
-                    {part.toolName} · {part.toolCallId}
+                    {part.name} · {part.callId}
                   </p>
                   <ToolInput
-                    input={
-                      part.input ?? (part.state === "input-streaming" ? part.inputText : undefined)
-                    }
+                    input={part.input ?? (part.state === "streaming" ? part.inputText : undefined)}
                   />
                   <ToolOutput output={part.output} errorText={presentation.errorText} />
                 </ToolContent>

@@ -43,15 +43,18 @@ EXPOSE 3017
 CMD ["node", "apps/web/server.js"]
 
 # The Eve CLI (`eve traces`) is the supported reader of the local trace store. It needs only
-# `eve`, `ai`, `zod` and their small dependency closure, so the bundler binaries that `eve`
-# pulls in for builds are dropped.
+# `eve`, `ai`, `zod` and their small dependency closure, so the build-time bundler binaries
+# (rolldown) and the optional framework peers that pnpm installs for `eve` (Next.js, React DOM,
+# Playwright, sharp) are dropped.
 FROM agent-build AS agent-cli
 RUN pnpm --filter @openstockai/agent deploy --prod --legacy /tmp/eve-cli \
     && cd /tmp/eve-cli/node_modules/.pnpm \
-    && rm -rf rolldown@* @rolldown+* @oxc-project+*
+    && rm -rf rolldown@* @rolldown+* @oxc-project+* next@* @next+* @img+* playwright* \
+       @playwright+* react-dom@* caniuse-lite@*
 
 # Eve's build output bundles its dependencies; .eve is the volume mount for agent state.
-# EVE_DEV_WORKER_APP_ROOT switches on Eve's local trace spool (.eve/traces) outside `eve dev`;
+# EVE_DEV_WORKER_APP_ROOT switches on Eve's local trace spool (.eve/traces) outside `eve dev`
+# (Eve 1.5 still documents the spool only for `eve dev`, so this variable stays);
 # `eve traces` finds the store through the minimal project marker created below.
 FROM bootstrap AS agent-production
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4273 EVE_TRACES_CONTENT=off \

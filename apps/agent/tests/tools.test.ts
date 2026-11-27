@@ -244,6 +244,13 @@ test("destructive tools take only an ID and send an empty body", async (t) => {
 
 test("a delete executes as DELETE on the real route with an idempotency key", async (t) => {
   const calls = mockAPI(t);
+  // Writes run in a workflow step, where Eve 1 makes defineState get()/update() throw. A write
+  // that touched the state after the API call would fail although Go had already applied it.
+  const unavailable = () => {
+    throw new Error("defineState() is unavailable inside a 'use step' function");
+  };
+  t.mock.method(catalogCache, "get", unavailable);
+  t.mock.method(catalogCache, "update", unavailable);
   const result = await deleteSupplier.execute({ id: targetId }, ctx);
   assert("ok" in result && result.ok);
   const sent = calls.find((c) => c.method === "DELETE");

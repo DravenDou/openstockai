@@ -20,7 +20,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
         path[0] !== "session" ||
         !/^[-\w]{1,200}$/.test(path[1] || "") ||
         path.length > 3 ||
-        (path.length === 3 && !["stream", "cancel", "compact", "clear", "reset"].includes(path[2]))
+        (path.length === 3 && !["stream", "cancel", "compact", "clear", "end", "reset"].includes(path[2]))
       )
         throw new HTTPError(404, "NOT_FOUND", "Unknown route.");
       const owner = await fetch(

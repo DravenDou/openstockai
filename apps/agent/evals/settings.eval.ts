@@ -15,7 +15,7 @@ export default defineEval<typeof config>({
         },
       );
       turn.calledTool("updateSettings");
-      t.noFailedActions();
+      t.noFailedCalls();
       t.succeeded();
       const after = await backend(t, "settings");
       assert.equal(after.store, "Eval Hardware Store");

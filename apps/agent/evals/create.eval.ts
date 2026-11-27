@@ -13,7 +13,7 @@ export default defineEval<typeof config>({
       { headers: headers(t) },
     );
     turn.calledTool("createProduct");
-    t.noFailedActions();
+    t.noFailedCalls();
     t.succeeded();
     const stored = await backend(t, `products/by-sku?sku=${encodeURIComponent(sku)}`);
     assert.equal(stored.sku, sku);

@@ -2,47 +2,29 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { chatError, chatSessionKey, savedChatSession } from "../src/features/assistant/lib/session";
 import { turnFailures, toolPresentation } from "../src/features/assistant/lib/chat";
-import {
-  conversationReducer,
-  EveAgentStore,
-  type EveDynamicToolPart,
-  type MessageStreamEvent,
-} from "eve/client";
+import type { EveToolPart, SessionStreamEvent } from "eve/client";
 
-test("a failed turn remains visible when Eve waits for the next free-form message", () => {
-  const meta = { id: "error-event", at: "2026-10-12T20:00:00Z" };
-  const failed: MessageStreamEvent = {
-    type: "turn.failed",
-    data: {
-      code: "MODEL_CALL_FAILED",
-      message: "The provider is rate limiting calls.",
-      sequence: 1,
-      turnId: "turn_0",
-    },
-    meta,
-  };
-  const waiting: MessageStreamEvent = {
-    type: "session.waiting",
-    data: { continuationToken: "session-test", wait: "next-user-message" },
-    meta: { ...meta, id: "waiting-event" },
-  };
+const event = (type: string, data: Record<string, unknown>, id = type) =>
+  ({ type, data, meta: { id, at: "2026-10-12T20:00:00Z" } }) as unknown as SessionStreamEvent;
+const failedTurn = (turnId: string, code: string, message: string) =>
+  event("turn.settled", { turnId, outcome: "failed", error: { code, message } }, `failed-${turnId}`);
+
+test("a failed turn remains visible until a later turn starts or settles", () => {
+  const failed = failedTurn("turn_0", "MODEL_CALL_FAILED", "The provider is rate limiting calls.");
   assert.equal(chatError([]), undefined);
-  assert.equal(chatError([failed, waiting]), failed.data.message);
-  for (const type of ["turn.started", "turn.completed", "turn.cancelled"] as const)
-    assert.equal(
-      chatError([
-        failed,
-        waiting,
-        { type, data: { sequence: 2, turnId: "turn_1" }, meta: { ...meta, id: type } },
-      ]),
-      undefined,
-    );
-  const terminal: MessageStreamEvent = {
-    type: "session.failed",
-    data: { code: "FAILED", message: "No se pudo continuar.", sessionId: "session-test" },
-    meta: { ...meta, id: "terminal-event" },
-  };
-  assert.equal(chatError([terminal]), terminal.data.message);
+  assert.equal(chatError([failed]), "The provider is rate limiting calls.");
+  assert.equal(chatError([failed, event("delivery.settled", {})]), "The provider is rate limiting calls.");
+  for (const later of [
+    event("turn.started", { turnId: "turn_1" }),
+    event("turn.settled", { turnId: "turn_1", outcome: "completed" }),
+    event("turn.settled", { turnId: "turn_1", outcome: "cancelled" }),
+  ])
+    assert.equal(chatError([failed, later]), undefined);
+  const terminal = event("session.ended", {
+    outcome: "failed",
+    error: { code: "FAILED", message: "No se pudo continuar." },
+  });
+  assert.equal(chatError([terminal]), "No se pudo continuar.");
 });
 
 test("only a valid cursor is restored; the durable stream is replayed from zero", () => {
@@ -62,42 +44,33 @@ test("only a valid cursor is restored; the durable stream is replayed from zero"
   assert.notEqual(key, chatSessionKey("user", "new-login"));
 });
 
-test("a durable turn failure stays visible when Eve returns ready without error, including replay", () => {
-  const failed = {
-    type: "turn.failed",
-    data: {
-      turnId: "turn_0",
-      code: "MODEL_CALL_FAILED",
-      message: "Your account cannot use the assistant right now.",
-    },
-    meta: { id: "failure", at: new Date().toISOString() },
-  } as MessageStreamEvent;
+test("a durable turn failure stays visible, including on replay", () => {
   const events = [
-    { type: "turn.started", data: { turnId: "turn_0" } },
-    failed,
-    { type: "session.waiting", data: {} },
-  ] as MessageStreamEvent[];
-  const store = new EveAgentStore({ reducer: conversationReducer, initialEvents: events });
-  assert.equal(store.snapshot.error, undefined);
-  assert.equal(store.snapshot.status, "ready");
+    event("turn.started", { turnId: "turn_0" }),
+    failedTurn("turn_0", "MODEL_CALL_FAILED", "Your account cannot use the assistant right now."),
+    event("turn.settled", { turnId: "turn_1", outcome: "completed" }),
+  ];
   assert.equal(
-    turnFailures(store.snapshot.events).get("turn_0")?.message,
+    turnFailures(events).get("turn_0")?.message,
     "Your account cannot use the assistant right now.",
   );
   assert.equal(turnFailures(events).get("turn_0")?.code, "MODEL_CALL_FAILED");
+  assert.equal(turnFailures(events).has("turn_1"), false);
   assert.equal(turnFailures([]).size, 0);
-  store.reset();
 });
 
 test("tool trace never labels a Go failure or pending approval as a completed write", () => {
   const part = {
-    type: "dynamic-tool",
-    toolName: "adjustStock",
-    toolCallId: "call",
-    state: "output-available",
+    type: "tool",
+    name: "adjustStock",
+    callId: "call",
+    kind: "tool",
+    label: "adjustStock",
+    stepIndex: 0,
+    state: "completed",
     input: { quantity: 0.5 },
     output: { ok: false, error: { message: "Insufficient stock" } },
-  } satisfies EveDynamicToolPart;
+  } satisfies EveToolPart;
   assert.deepEqual(toolPresentation(part), {
     state: "output-error",
     errorText: "Insufficient stock",
@@ -110,15 +83,15 @@ test("tool trace never labels a Go failure or pending approval as a completed wr
     toolPresentation({ ...part, output: { ok: true, data: { after: 5.5 } } }).state,
     "output-available",
   );
-  assert.equal(
+  assert.equal(toolPresentation({ ...part, state: "rejected", output: undefined }).state, "output-denied");
+  assert.equal(toolPresentation({ ...part, state: "approval", output: undefined }).state, "approval-requested");
+  assert.deepEqual(
     toolPresentation({
-      type: "dynamic-tool",
-      toolName: "adjustStock",
-      toolCallId: "call",
-      state: "output-denied",
-      input: { quantity: 0.5 },
-      approval: { id: "approval", approved: false },
-    }).state,
-    "output-denied",
+      ...part,
+      state: "failed",
+      output: undefined,
+      error: { code: "TOOL_FAILED", message: "Go is down" },
+    }),
+    { state: "output-error", errorText: "Go is down" },
   );
 });

@@ -3,3 +3,5 @@
 services:
   agent:
     ports: ["127.0.0.1:${EVAL_AGENT_PORT:-4373}:4273"]
+    environment:
+      OPENSTOCK_EVAL_TOKEN: ${OPENSTOCK_EVAL_TOKEN:-}

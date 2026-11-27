@@ -116,6 +116,27 @@ function productFields(input: Record<string, unknown>): SummaryRow[] {
   return rows;
 }
 
+// A budget prompt is about the session, not a call. Eve reuses the `approve`/`deny` option
+// ids for "continue" and "stop", so the labels come from the prompt, never from the approval copy.
+export function summarizeInteraction(
+  kind: string | undefined,
+  toolName: string,
+  raw: Record<string, unknown> | undefined,
+): ApprovalSummary {
+  if (kind === "budget")
+    return { title: "Session token budget reached", destructive: false, rows: [], confirm: "" };
+  return summarizeApproval(toolName, raw);
+}
+
+export function optionLabel(
+  kind: string | undefined,
+  option: { id: string; label: string },
+  summary: ApprovalSummary,
+) {
+  if (kind === "budget") return option.label;
+  return option.id === "approve" ? summary.confirm : option.id === "deny" ? "Reject" : option.label;
+}
+
 export function summarizeApproval(
   toolName: string,
   raw: Record<string, unknown> | undefined,

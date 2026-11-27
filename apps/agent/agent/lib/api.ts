@@ -6,7 +6,7 @@ import { actionIdFor } from "@openstockai/api-client/agent-runs";
 import type { paths } from "@openstockai/api-client/generated";
 import { serverEnv } from "@openstockai/server/env";
 import { auditResult } from "./results";
-import { clearCatalogCache, readCatalog, writeCatalog } from "./catalog-cache";
+import { readCatalog, writeCatalog } from "./catalog-cache";
 const identitySchema = z.object({ userId: z.uuid(), sessionId: z.uuid() });
 export function principal(session: Pick<ToolContext["session"], "auth">) {
   const current = session.auth.current,
@@ -203,7 +203,7 @@ export async function call<P extends keyof paths, M extends Methods & keyof path
         signal: AbortSignal.timeout(10_000),
       }).catch(() => undefined);
     return { ok: false, error: domain } as const;
-  } finally {
-    if (method !== "get") clearCatalogCache();
   }
+  // Writes run in a workflow "use step" function, where defineState get()/update() throw, so
+  // they never touch the catalog cache; hooks/clear-catalog-cache.ts clears it after the call.
 }

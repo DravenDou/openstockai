@@ -28,10 +28,12 @@ export default [
       assert.equal(settings.automatic, true, "The fixture runs with auto-approve on.");
       named(t.context.categories, "Eval Disposable Category");
       const first = await t.send(text, { headers: headers(t) });
-      const request = first.session.requireInputRequest({ toolName: tool });
-      const reject = request.options?.find((option) => option.id !== "approve");
+      const request = first.session.requireInteraction({ toolName: tool });
+      const reject = request.request.options?.find((option) => option.id !== "approve");
       assert(reject, "A rejection option is required.");
-      await first.session.respond([{ requestId: request.requestId, optionId: reject.id }]);
+      await first.session.respond([{ interactionId: request.interactionId, optionId: reject.id }], {
+        headers: headers(t),
+      });
       assert.equal(await exists(t), true, "Rejecting must leave the data untouched.");
       t.succeeded();
       await report(t, first.sessionId, started);

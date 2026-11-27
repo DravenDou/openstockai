@@ -1,23 +1,37 @@
-import type { EveDynamicToolPart, MessageStreamEvent } from "eve/client";
+import type { EveToolPart, SessionStreamEvent } from "eve/client";
 
-export function turnFailures(events: readonly MessageStreamEvent[]) {
+export function turnFailures(events: readonly SessionStreamEvent[]) {
   const failures = new Map<string, { code: string; message: string }>();
   for (const event of events) {
-    // Eve 0.71.2 can return ready with error=undefined after turn.failed.
-    // Keep the durable failure visible, including when replaying a conversation.
-    if (event.type === "turn.failed") {
+    // A failed turn settles with outcome "failed" and an error; keep it visible, including
+    // when replaying a conversation.
+    if (event.type === "turn.settled" && event.data.outcome === "failed") {
       failures.set(event.data.turnId, {
-        code: event.data.code || "TURN_FAILED",
+        code: event.data.error?.code || "TURN_FAILED",
         message:
-          event.data.message || "The response could not be completed. Try again in a moment.",
+          event.data.error?.message ||
+          "The response could not be completed. Try again in a moment.",
       });
     }
   }
   return failures;
 }
 
-export function toolPresentation(part: EveDynamicToolPart) {
-  if (part.state === "output-available" && part.output && typeof part.output === "object") {
+// The state vocabulary the shared Tool header renders.
+const toolStates = {
+  requested: "input-available",
+  running: "input-available",
+  blocked: "input-available",
+  approval: "approval-requested",
+  completed: "output-available",
+  failed: "output-error",
+  rejected: "output-denied",
+  cancelled: "output-denied",
+  streaming: "input-streaming",
+} as const;
+
+export function toolPresentation(part: EveToolPart) {
+  if (part.state === "completed" && part.output && typeof part.output === "object") {
     const output = part.output as {
       ok?: boolean;
       error?: { message?: string };
@@ -34,7 +48,10 @@ export function toolPresentation(part: EveDynamicToolPart) {
           };
     }
   }
-  return { state: part.state, errorText: part.errorText };
+  return {
+    state: toolStates[part.state],
+    errorText: part.state === "failed" ? part.error?.message : undefined,
+  };
 }
 
 export const toolLabels: Record<string, string> = {

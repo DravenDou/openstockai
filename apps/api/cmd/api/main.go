@@ -91,13 +91,17 @@ func run(migrate, provisionRoles bool, migrations string) error {
 	if len(os.Getenv("AGENT_SERVICE_SECRET")) < 32 {
 		return errors.New("AGENT_SERVICE_SECRET must contain at least 32 characters")
 	}
+	// MCP is optional: without a secret every MCP token is rejected.
+	if secret := os.Getenv("MCP_SERVICE_SECRET"); secret != "" && len(secret) < 32 {
+		return errors.New("MCP_SERVICE_SECRET must contain at least 32 characters")
+	}
 	v := auth.NewVerifier(os.Getenv("BETTER_AUTH_JWKS_URL"), os.Getenv("JWT_ISSUER"), os.Getenv("JWT_AUDIENCE"))
 	addr := os.Getenv("API_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8087"
 	}
 	services := app.New(pool)
-	server := &http.Server{Addr: addr, Handler: apihttp.Router(services, v, os.Getenv("AGENT_SERVICE_SECRET")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+	server := &http.Server{Addr: addr, Handler: apihttp.Router(services, v, os.Getenv("AGENT_SERVICE_SECRET"), os.Getenv("MCP_SERVICE_SECRET")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -1,6 +1,10 @@
 package inventory
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/DravenDou/openstockai/apps/api/internal/platform/principal"
+)
 
 func TestApprovalPolicy(t *testing.T) {
 	cases := []struct {
@@ -23,6 +27,28 @@ func TestApprovalPolicy(t *testing.T) {
 	for _, c := range cases {
 		if got := needsApproval(c.auto, c.operation, c.highRisk); got != c.want {
 			t.Errorf("%s: needsApproval=%v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestOwnerApprovalRequired(t *testing.T) {
+	const id = "0b6f5a50-3c1f-4c5e-9a53-2c6d1f1c0a11"
+	for _, c := range []struct {
+		operation, raw string
+		want           bool
+	}{
+		{"POST /v1/inventory/adjustments", `{"quantity":5}`, false},
+		{"POST /v1/inventory/adjustments", `{"quantity":1001}`, true},
+		{"POST /v1/products", `{"initialStock":2000}`, true},
+		{"POST /v1/products", `{"name":"x"}`, false},
+		{"PATCH /v1/settings", `{}`, false},
+		{"DELETE /v1/products/" + id, `{}`, true},
+		{"POST /v1/products/" + id + "/restore", `{}`, true},
+		{"GET /v1/products", `{}`, false},
+		{"POST /v1/inventory/adjustments", `not json`, true},
+	} {
+		if got := ownerApprovalRequired(c.operation, []byte(c.raw)); got != c.want {
+			t.Errorf("%s %s: got %v, want %v", c.operation, c.raw, got, c.want)
 		}
 	}
 }
@@ -91,6 +117,21 @@ func TestEveryWriteKindIsClassified(t *testing.T) {
 	for _, op := range []string{"DELETE /v1/products/1", "DELETE /v1/warehouses/1", "POST /v1/products/1/restore", "POST /v1/products/1/archive"} {
 		if !isDestructive(op) {
 			t.Errorf("%s must be destructive", op)
+		}
+	}
+}
+
+func TestMCPCannotChangeSettings(t *testing.T) {
+	mcp := principal.Principal{ActorType: "mcp", ClientID: "c"}
+	if err := rejectMCPSettings(mcp, "PATCH /v1/settings"); err == nil {
+		t.Error("an mcp principal must not change settings")
+	}
+	if err := rejectMCPSettings(mcp, "PATCH /v1/products/1"); err != nil {
+		t.Errorf("other operations stay allowed: %v", err)
+	}
+	for _, actor := range []string{"ai", "user"} {
+		if err := rejectMCPSettings(principal.Principal{ActorType: actor}, "PATCH /v1/settings"); err != nil {
+			t.Errorf("%s: %v", actor, err)
 		}
 	}
 }

@@ -100,7 +100,7 @@ func (q *Queries) CompleteIdempotency(ctx context.Context, arg CompleteIdempoten
 }
 
 const createAgentAction = `-- name: CreateAgentAction :one
-INSERT INTO agent_actions (id,user_id,conversation_id,tool_name,tool_input,approval_status) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING RETURNING id
+INSERT INTO agent_actions (id,user_id,conversation_id,tool_name,tool_input,approval_status,actor_type,client_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING RETURNING id
 `
 
 type CreateAgentActionParams struct {
@@ -110,6 +110,8 @@ type CreateAgentActionParams struct {
 	ToolName       string          `json:"tool_name"`
 	ToolInput      json.RawMessage `json:"tool_input"`
 	ApprovalStatus string          `json:"approval_status"`
+	ActorType      string          `json:"actor_type"`
+	ClientID       pgtype.Text     `json:"client_id"`
 }
 
 func (q *Queries) CreateAgentAction(ctx context.Context, arg CreateAgentActionParams) (pgtype.UUID, error) {
@@ -120,6 +122,8 @@ func (q *Queries) CreateAgentAction(ctx context.Context, arg CreateAgentActionPa
 		arg.ToolName,
 		arg.ToolInput,
 		arg.ApprovalStatus,
+		arg.ActorType,
+		arg.ClientID,
 	)
 	var id pgtype.UUID
 	err := row.Scan(&id)
@@ -349,7 +353,7 @@ func (q *Queries) ExportProducts(ctx context.Context, arg ExportProductsParams) 
 }
 
 const getAgentAction = `-- name: GetAgentAction :one
-SELECT id, user_id, conversation_id, tool_name, tool_input, result, status, approval_status, started_at, completed_at, error FROM agent_actions WHERE user_id=$1 AND id=$2 FOR UPDATE
+SELECT id, user_id, conversation_id, tool_name, tool_input, result, status, approval_status, started_at, completed_at, error, actor_type, client_id FROM agent_actions WHERE user_id=$1 AND id=$2 FOR UPDATE
 `
 
 type GetAgentActionParams struct {
@@ -372,6 +376,8 @@ func (q *Queries) GetAgentAction(ctx context.Context, arg GetAgentActionParams) 
 		&i.StartedAt,
 		&i.CompletedAt,
 		&i.Error,
+		&i.ActorType,
+		&i.ClientID,
 	)
 	return i, err
 }
@@ -1095,6 +1101,36 @@ func (q *Queries) ProductStock(ctx context.Context, productID pgtype.UUID) (pgty
 	var column_1 pgtype.Numeric
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const readAgentAction = `-- name: ReadAgentAction :one
+SELECT id, user_id, conversation_id, tool_name, tool_input, result, status, approval_status, started_at, completed_at, error, actor_type, client_id FROM agent_actions WHERE user_id=$1 AND id=$2
+`
+
+type ReadAgentActionParams struct {
+	UserID string      `json:"user_id"`
+	ID     pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) ReadAgentAction(ctx context.Context, arg ReadAgentActionParams) (AgentAction, error) {
+	row := q.db.QueryRow(ctx, readAgentAction, arg.UserID, arg.ID)
+	var i AgentAction
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ConversationID,
+		&i.ToolName,
+		&i.ToolInput,
+		&i.Result,
+		&i.Status,
+		&i.ApprovalStatus,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Error,
+		&i.ActorType,
+		&i.ClientID,
+	)
+	return i, err
 }
 
 const recordAudit = `-- name: RecordAudit :exec

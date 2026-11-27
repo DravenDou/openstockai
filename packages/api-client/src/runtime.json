@@ -7,7 +7,8 @@
           "type": "object",
           "properties": {
             "code": {
-              "type": "string"
+              "type": "string",
+              "description": "Stable error code. Agent action codes include ACTION_MISMATCH, ACTION_REJECTED, ACTION_REQUIRED, ACTION_STALE, ACTION_NOT_PENDING, APPROVAL_REQUIRED and OWNER_APPROVAL_REQUIRED (403: an MCP client tried to approve a high-risk or destructive action; only the owner can)."
             },
             "message": {
               "type": "string"
@@ -341,7 +342,8 @@
           "type": "string"
         },
         "actor_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system."
         },
         "user_id": {
           "type": "string",
@@ -674,7 +676,8 @@
         "operation",
         "toolInput"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "Registers a tool call before it runs. Allowed for the agent service (ai) and MCP clients (mcp). Registering the same id again must repeat the same operation, input, conversation, actor type and client id, otherwise 409 ACTION_MISMATCH."
     },
     "ActionCreated": {
       "type": "object",
@@ -685,11 +688,16 @@
         },
         "approvalStatus": {
           "type": "string"
+        },
+        "ownerApprovalRequired": {
+          "type": "boolean",
+          "description": "True when the owner must approve in the OpenStock app (the write is high risk or destructive, so an MCP client cannot approve it). Always false for GET operations."
         }
       },
       "required": [
         "id",
-        "approvalStatus"
+        "approvalStatus",
+        "ownerApprovalRequired"
       ],
       "additionalProperties": false
     },
@@ -804,7 +812,8 @@
           "format": "uuid"
         },
         "actor_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system."
         },
         "action": {
           "type": "string"
@@ -1107,7 +1116,8 @@
           "pattern": "^\\d+\\.\\d{2}$"
         },
         "actor_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system."
         }
       },
       "required": [
@@ -1215,7 +1225,8 @@
           "format": "uuid"
         },
         "actor_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system."
         },
         "action": {
           "type": "string"
@@ -1364,7 +1375,8 @@
           "type": "string"
         },
         "actor_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system."
         },
         "created_at": {
           "type": "string",
@@ -1733,6 +1745,84 @@
         "suppliers"
       ],
       "additionalProperties": false
+    },
+    "ActionView": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "toolInput": {},
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "completed",
+            "failed"
+          ]
+        },
+        "approvalStatus": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "not_required"
+          ]
+        },
+        "actorType": {
+          "type": "string",
+          "enum": [
+            "ai",
+            "mcp"
+          ]
+        },
+        "clientId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "OAuth client id of the MCP client that registered the action; null for the agent."
+        },
+        "ownerApprovalRequired": {
+          "type": "boolean"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "operation",
+        "toolInput",
+        "status",
+        "approvalStatus",
+        "actorType",
+        "clientId",
+        "ownerApprovalRequired",
+        "startedAt",
+        "completedAt",
+        "error"
+      ],
+      "additionalProperties": false
     }
   },
   "responses": {
@@ -1847,6 +1937,9 @@
       "$ref": "#/$defs/Identity"
     },
     "POST /v1/agent-actions/{id}/approval": {},
+    "GET /v1/agent-actions/{id}": {
+      "$ref": "#/$defs/ActionView"
+    },
     "PATCH /v1/agent-actions/{id}": {
       "$ref": "#/$defs/OK"
     },

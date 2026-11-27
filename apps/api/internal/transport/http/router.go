@@ -76,7 +76,56 @@ func secretEqual(a, b string) bool {
 	return len(b) >= 32 && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-func Router(services *app.Services, v *auth.Verifier, agentSecret string) http.Handler {
+// derivePrincipal maps verified claims and the service headers to the caller. MCP tokens need
+// X-MCP-Secret (and the secret must be configured), session tokens must not send it, and the
+// two service secrets never combine. A session token with X-Agent-Secret is the agent.
+func derivePrincipal(claims *auth.Claims, h http.Header, agentSecret, mcpSecret string) (principal.Principal, error) {
+	ids := []string{claims.Subject, claims.SID}
+	if claims.Act == "mcp" {
+		ids = ids[:1]
+	}
+	for _, id := range ids {
+		if _, e := uuid.Parse(id); e != nil {
+			return principal.Principal{}, apperror.Fail("FORBIDDEN", "Invalid identity.", 403)
+		}
+	}
+	if claims.Act == "mcp" {
+		if h.Get("X-Agent-Secret") != "" || !secretEqual(h.Get("X-MCP-Secret"), mcpSecret) {
+			return principal.Principal{}, apperror.Fail("FORBIDDEN", "Invalid MCP service credentials.", 403)
+		}
+		return principal.Principal{UserID: claims.Subject, ActorType: "mcp", ClientID: claims.CID, ActionID: h.Get("X-Agent-Action-ID")}, nil
+	}
+	if h.Get("X-MCP-Secret") != "" {
+		return principal.Principal{}, apperror.Fail("FORBIDDEN", "Invalid MCP service credentials.", 403)
+	}
+	p := principal.Principal{UserID: claims.Subject, SessionID: claims.SID, ActorType: "human"}
+	if h.Get("X-Agent-Secret") != "" {
+		if !secretEqual(h.Get("X-Agent-Secret"), agentSecret) {
+			return principal.Principal{}, apperror.Fail("FORBIDDEN", "Invalid agent service credentials.", 403)
+		}
+		p.ActorType = "ai"
+		p.ActionID = h.Get("X-Agent-Action-ID")
+	}
+	return p, nil
+}
+
+// mcpScopeAllowed enforces the OAuth scopes the owner granted (narrowed by the web token
+// exchange): every MCP call needs inventory:read and anything but a read needs inventory:write.
+func mcpScopeAllowed(scope, method string) bool {
+	scopes := strings.Fields(scope)
+	has := func(s string) bool {
+		for _, v := range scopes {
+			if v == s {
+				return true
+			}
+		}
+		return false
+	}
+	return has("inventory:read") && (method == http.MethodGet || has("inventory:write"))
+}
+
+// Router serves the REST API. An empty mcpSecret disables the MCP actor.
+func Router(services *app.Services, v *auth.Verifier, agentSecret, mcpSecret string) http.Handler {
 	q := database.New(database.ContextDB{Pool: services.Pool})
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.Recoverer, middleware.Timeout(30*time.Second))
@@ -106,24 +155,20 @@ func Router(services *app.Services, v *auth.Verifier, agentSecret string) http.H
 					failure(ww, apperror.Fail("UNAUTHORIZED", "Invalid or expired token.", 401))
 					return
 				}
-				for _, id := range []string{claims.Subject, claims.SID} {
-					if _, e = uuid.Parse(id); e != nil {
-						failure(ww, apperror.Fail("FORBIDDEN", "Invalid identity.", 403))
-						return
-					}
-				}
-				if _, e = q.SessionActive(r.Context(), database.SessionActiveParams{UserID: database.ID(claims.Subject), SessionID: database.ID(claims.SID)}); e != nil {
-					failure(ww, apperror.Fail("FORBIDDEN", "The session has expired or is no longer valid.", 403))
+				p, e = derivePrincipal(claims, r.Header, agentSecret, mcpSecret)
+				if e != nil {
+					failure(ww, e)
 					return
 				}
-				p = principal.Principal{UserID: claims.Subject, SessionID: claims.SID, ActorType: "human"}
-				if r.Header.Get("X-Agent-Secret") != "" {
-					if !secretEqual(r.Header.Get("X-Agent-Secret"), agentSecret) {
-						failure(ww, apperror.Fail("FORBIDDEN", "Invalid agent service credentials.", 403))
+				if p.ActorType == "mcp" && !mcpScopeAllowed(claims.Scope, r.Method) {
+					failure(ww, apperror.Fail("INSUFFICIENT_SCOPE", "The owner did not grant this MCP client that access.", 403))
+					return
+				}
+				if p.ActorType != "mcp" {
+					if _, e = q.SessionActive(r.Context(), database.SessionActiveParams{UserID: database.ID(claims.Subject), SessionID: database.ID(claims.SID)}); e != nil {
+						failure(ww, apperror.Fail("FORBIDDEN", "The session has expired or is no longer valid.", 403))
 						return
 					}
-					p.ActorType = "ai"
-					p.ActionID = r.Header.Get("X-Agent-Action-ID")
 				}
 				transaction(services.Pool, next).ServeHTTP(ww, r.WithContext(principal.With(r.Context(), p)))
 			})

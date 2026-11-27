@@ -155,8 +155,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description Owner and agent only. 403 FORBIDDEN for an mcp principal, which reads its own action by id. */
         get: operations["get_v1_agent_actions"];
         put?: never;
+        /** @description Allowed for ai and mcp principals; the action stores the actor type and, for mcp, the client id. 403 FORBIDDEN for any other caller, and for an mcp principal registering PATCH /v1/settings. */
         post: operations["post_v1_agent_actions"];
         delete?: never;
         options?: never;
@@ -253,6 +255,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description A signed-in human may approve or reject any pending action. An mcp principal may decide only on a pending action registered by its own client: rejecting is always allowed, approving is allowed only when the stored operation and input are neither high risk nor destructive (otherwise 403 OWNER_APPROVAL_REQUIRED). Another client's action, or the agent's, answers 404. The decision is audited with the caller's actor type; for mcp the metadata holds agentActionId and clientId. */
         post: operations["post_v1_agent_actions__id__approval"];
         delete?: never;
         options?: never;
@@ -267,12 +270,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** @description Reads one agent action. A human sees any action, the agent (ai) sees ai actions, and an mcp client sees only its own client's mcp actions; anything else answers 404. */
+        get: operations["get_v1_agent_actions__id_"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
+        /** @description Agent (ai) only. MCP clients do not register reads. */
         patch: operations["patch_v1_agent_actions__id_"];
         trace?: never;
     };
@@ -285,6 +290,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Agent (ai) only. */
         post: operations["post_v1_agent_sessions"];
         delete?: never;
         options?: never;
@@ -746,6 +752,7 @@ export interface components {
     schemas: {
         Error: {
             error: {
+                /** @description Stable error code. Agent action codes include ACTION_MISMATCH, ACTION_REJECTED, ACTION_REQUIRED, ACTION_STALE, ACTION_NOT_PENDING, APPROVAL_REQUIRED and OWNER_APPROVAL_REQUIRED (403: an MCP client tried to approve a high-risk or destructive action; only the owner can). */
                 code: string;
                 message: string;
             };
@@ -833,6 +840,7 @@ export interface components {
             warehouse_id: string;
             quantity: number;
             type: string;
+            /** @description Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system. */
             actor_type: string;
             /** Format: uuid */
             user_id: string;
@@ -913,6 +921,7 @@ export interface components {
             completed_at: string | null;
             error: string | null;
         };
+        /** @description Registers a tool call before it runs. Allowed for the agent service (ai) and MCP clients (mcp). Registering the same id again must repeat the same operation, input, conversation, actor type and client id, otherwise 409 ACTION_MISMATCH. */
         ActionInput: {
             /** Format: uuid */
             id: string;
@@ -924,6 +933,8 @@ export interface components {
             /** Format: uuid */
             id: string;
             approvalStatus: string;
+            /** @description True when the owner must approve in the OpenStock app (the write is high risk or destructive, so an MCP client cannot approve it). Always false for GET operations. */
+            ownerApprovalRequired: boolean;
         };
         Approval: {
             approved: boolean;
@@ -955,6 +966,7 @@ export interface components {
             id: string;
             /** Format: uuid */
             user_id: string;
+            /** @description Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system. */
             actor_type: string;
             action: string;
             resource_type: string;
@@ -1034,6 +1046,7 @@ export interface components {
             warehouse: string;
             supplier: string;
             total: string;
+            /** @description Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system. */
             actor_type: string;
         };
         PurchaseLine: {
@@ -1059,6 +1072,7 @@ export interface components {
             id: string;
             /** Format: uuid */
             user_id: string;
+            /** @description Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system. */
             actor_type: string;
             action: string;
             resource_type: string;
@@ -1097,6 +1111,7 @@ export interface components {
             warehouse_name: string;
             quantity: number;
             type: string;
+            /** @description Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system. */
             actor_type: string;
             /** Format: date-time */
             created_at: string;
@@ -1175,6 +1190,26 @@ export interface components {
             total_spend: string;
             purchases: number;
             suppliers: components["schemas"]["SupplierSpendRow"][];
+        };
+        ActionView: {
+            /** Format: uuid */
+            id: string;
+            operation: string;
+            toolInput: unknown;
+            /** @enum {string} */
+            status: "pending" | "completed" | "failed";
+            /** @enum {string} */
+            approvalStatus: "pending" | "approved" | "rejected" | "not_required";
+            /** @enum {string} */
+            actorType: "ai" | "mcp";
+            /** @description OAuth client id of the MCP client that registered the action; null for the agent. */
+            clientId: string | null;
+            ownerApprovalRequired: boolean;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            completedAt: string | null;
+            error: string | null;
         };
     };
     responses: never;
@@ -2035,6 +2070,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Domain error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    get_v1_agent_actions__id_: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionView"];
                 };
             };
             /** @description Domain error */

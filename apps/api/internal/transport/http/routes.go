@@ -174,7 +174,13 @@ func registerRoutes(r chi.Router, s *inventory.Service) {
 	})
 	get(r, "/agent-actions", func(r *http.Request, _ listOptions) (any, error) {
 		t := principal.From(r.Context())
+		if t.ActorType == "mcp" {
+			return nil, apperror.Fail("FORBIDDEN", "An MCP client cannot list agent actions. Read its own action by ID.", 403)
+		}
 		return s.Q.ListAgentActions(r.Context(), t.UserID)
+	})
+	get(r, "/agent-actions/{id}", func(r *http.Request, _ listOptions) (any, error) {
+		return s.GetAction(r.Context(), principal.From(r.Context()), chi.URLParam(r, "id"))
 	})
 	get(r, "/settings", func(r *http.Request, _ listOptions) (any, error) {
 		raw, err := s.Q.GetSettings(r.Context())

@@ -13,10 +13,17 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
+// Claims: sid binds a session token; act "mcp" marks a token minted for an MCP client, which
+// has no session, carries the OAuth client id in cid and the scopes the owner granted in scope.
+// An empty act is a session token.
 type Claims struct {
-	SID string `json:"sid"`
+	SID   string `json:"sid"`
+	Act   string `json:"act"`
+	CID   string `json:"cid"`
+	Scope string `json:"scope"`
 	jwt.RegisteredClaims
 }
 type Verifier struct {
@@ -92,8 +99,17 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (*Claims, error) {
 	if token == nil || !token.Valid {
 		return nil, errors.New("invalid or expired token")
 	}
-	if claims.Subject == "" || claims.SID == "" {
-		return nil, errors.New("missing identity or session")
+	switch claims.Act {
+	case "":
+		if claims.Subject == "" || claims.SID == "" {
+			return nil, errors.New("missing identity or session")
+		}
+	case "mcp":
+		if _, err = uuid.Parse(claims.Subject); err != nil || claims.SID != "" || claims.CID == "" || len(claims.CID) > 512 {
+			return nil, errors.New("invalid MCP identity")
+		}
+	default:
+		return nil, errors.New("unknown actor")
 	}
 	return claims, nil
 }

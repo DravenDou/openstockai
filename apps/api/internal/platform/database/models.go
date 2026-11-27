@@ -23,6 +23,8 @@ type AgentAction struct {
 	StartedAt      pgtype.Timestamptz `json:"started_at"`
 	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
 	Error          pgtype.Text        `json:"error"`
+	ActorType      string             `json:"actor_type"`
+	ClientID       pgtype.Text        `json:"client_id"`
 }
 
 type AgentSession struct {

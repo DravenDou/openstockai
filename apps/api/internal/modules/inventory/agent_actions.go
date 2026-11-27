@@ -77,9 +77,31 @@ func validOperation(operation string) bool {
 	return false
 }
 
+// ownerApprovalRequired is true when the owner must approve in the app: high-risk or
+// destructive writes can never be approved by an MCP client.
+func ownerApprovalRequired(operation string, raw []byte) bool {
+	return !strings.HasPrefix(operation, "GET ") && (isHighRisk(operation, raw) || isDestructive(operation))
+}
+
+func clientID(t principal.Principal) pgtype.Text {
+	return pgtype.Text{String: t.ClientID, Valid: t.ActorType == "mcp"}
+}
+
+// rejectMCPSettings keeps settings (including auto-approval) out of reach of an MCP client, which
+// could otherwise register the change and approve it itself.
+func rejectMCPSettings(t principal.Principal, operation string) error {
+	if t.ActorType == "mcp" && operation == "PATCH /v1/settings" {
+		return apperror.Fail("FORBIDDEN", "An MCP client cannot change settings. The owner changes them in the app.", 403)
+	}
+	return nil
+}
+
 func (s *Service) CreateAction(ctx context.Context, t principal.Principal, in ActionInput) (any, error) {
-	if t.ActorType != "ai" {
-		return nil, apperror.Fail("FORBIDDEN", "Only the agent service can register tool calls.", 403)
+	if t.ActorType != "ai" && t.ActorType != "mcp" {
+		return nil, apperror.Fail("FORBIDDEN", "Only the agent service or an MCP client can register tool calls.", 403)
+	}
+	if err := rejectMCPSettings(t, in.Operation); err != nil {
+		return nil, err
 	}
 	if !validOperation(in.Operation) || !validate.ID(in.ID) || !validate.Name(in.ConversationID, 200) || !json.Valid(in.ToolInput) || len(in.ToolInput) > 65536 {
 		return nil, apperror.Fail("INVALID_ACTION", "Invalid tool call.", 422)
@@ -94,22 +116,53 @@ func (s *Service) CreateAction(ctx context.Context, t principal.Principal, in Ac
 			approval = "pending"
 		}
 	}
-	id, e := s.Q.CreateAgentAction(ctx, database.CreateAgentActionParams{ID: database.ID(in.ID), UserID: t.UserID, ConversationID: in.ConversationID, ToolName: in.Operation, ToolInput: in.ToolInput, ApprovalStatus: approval})
+	owner := ownerApprovalRequired(in.Operation, in.ToolInput)
+	id, e := s.Q.CreateAgentAction(ctx, database.CreateAgentActionParams{ID: database.ID(in.ID), UserID: t.UserID, ConversationID: in.ConversationID, ToolName: in.Operation, ToolInput: in.ToolInput, ApprovalStatus: approval, ActorType: t.ActorType, ClientID: clientID(t)})
 	if errors.Is(e, pgx.ErrNoRows) {
 		old, err := s.Q.GetAgentAction(ctx, database.GetAgentActionParams{UserID: t.UserID, ID: database.ID(in.ID)})
 		if err != nil {
 			return nil, apperror.DomainError(err)
 		}
-		if old.ToolName != in.Operation || old.ConversationID != in.ConversationID || hash(old.ToolInput) != hash(in.ToolInput) {
+		if old.ToolName != in.Operation || old.ConversationID != in.ConversationID || hash(old.ToolInput) != hash(in.ToolInput) || old.ActorType != t.ActorType || old.ClientID != clientID(t) {
 			return nil, apperror.Fail("ACTION_MISMATCH", "The action ID already identifies a different input.", 409)
 		}
-		return map[string]string{"id": in.ID, "approvalStatus": old.ApprovalStatus}, nil
+		return map[string]any{"id": in.ID, "approvalStatus": old.ApprovalStatus, "ownerApprovalRequired": owner}, nil
 	}
-	return map[string]string{"id": database.IDString(id), "approvalStatus": approval}, e
+	return map[string]any{"id": database.IDString(id), "approvalStatus": approval, "ownerApprovalRequired": owner}, e
 }
+
+// GetAction reads one agent action. The owner sees every action; the agent sees its own
+// actions; an MCP client sees only the actions its own client registered. Anything else is 404.
+func (s *Service) GetAction(ctx context.Context, t principal.Principal, id string) (any, error) {
+	if !validate.ID(id) {
+		return nil, apperror.Fail("NOT_FOUND", "Resource not found.", 404)
+	}
+	a, err := s.Q.ReadAgentAction(ctx, database.ReadAgentActionParams{UserID: t.UserID, ID: database.ID(id)})
+	if err != nil {
+		return nil, apperror.DomainError(err)
+	}
+	if (t.ActorType == "ai" && a.ActorType != "ai") || (t.ActorType == "mcp" && (a.ActorType != "mcp" || a.ClientID != clientID(t))) {
+		return nil, apperror.Fail("NOT_FOUND", "Resource not found.", 404)
+	}
+	view := map[string]any{"id": database.IDString(a.ID), "operation": a.ToolName, "toolInput": a.ToolInput, "status": a.Status, "approvalStatus": a.ApprovalStatus,
+		"actorType": a.ActorType, "clientId": nil, "ownerApprovalRequired": ownerApprovalRequired(a.ToolName, a.ToolInput), "startedAt": a.StartedAt.Time, "completedAt": nil, "error": nil}
+	if a.ClientID.Valid {
+		view["clientId"] = a.ClientID.String
+	}
+	if a.CompletedAt.Valid {
+		view["completedAt"] = a.CompletedAt.Time
+	}
+	if a.Error.Valid {
+		view["error"] = a.Error.String
+	}
+	return view, nil
+}
+
+// ApproveAction records the owner's decision. An MCP client may decide only on its own pending
+// actions, may always reject, and may approve only what is neither high-risk nor destructive.
 func (s *Service) ApproveAction(ctx context.Context, t principal.Principal, id string, approved bool) (any, error) {
-	if t.ActorType != "human" {
-		return nil, apperror.Fail("FORBIDDEN", "Approval requires a signed-in human user.", 403)
+	if t.ActorType != "human" && t.ActorType != "mcp" {
+		return nil, apperror.Fail("FORBIDDEN", "Approval requires a signed-in human user or an MCP client.", 403)
 	}
 	status := "rejected"
 	if approved {
@@ -121,8 +174,26 @@ func (s *Service) ApproveAction(ctx context.Context, t principal.Principal, id s
 	}
 	defer database.Rollback(ctx, tx)
 	q := s.Q.WithTx(tx)
-	if _, e = q.SessionActive(ctx, database.SessionActiveParams{UserID: database.ID(t.UserID), SessionID: database.ID(t.SessionID)}); e != nil {
-		return nil, apperror.Fail("FORBIDDEN", "Invalid session.", 403)
+	metadata := []byte(`{}`)
+	if t.ActorType == "human" {
+		if _, e = q.SessionActive(ctx, database.SessionActiveParams{UserID: database.ID(t.UserID), SessionID: database.ID(t.SessionID)}); e != nil {
+			return nil, apperror.Fail("FORBIDDEN", "Invalid session.", 403)
+		}
+	} else {
+		if !validate.ID(id) {
+			return nil, apperror.Fail("NOT_FOUND", "Resource not found.", 404)
+		}
+		a, e := q.GetAgentAction(ctx, database.GetAgentActionParams{UserID: t.UserID, ID: database.ID(id)})
+		if e != nil {
+			return nil, apperror.DomainError(e)
+		}
+		if a.ActorType != "mcp" || a.ClientID != clientID(t) {
+			return nil, apperror.Fail("NOT_FOUND", "Resource not found.", 404)
+		}
+		if approved && ownerApprovalRequired(a.ToolName, a.ToolInput) {
+			return nil, apperror.Fail("OWNER_APPROVAL_REQUIRED", "This operation must be approved by the owner in OpenStock.", 403)
+		}
+		metadata = jsonBytes(map[string]string{"agentActionId": id, "clientId": t.ClientID})
 	}
 	changed, e := q.ApproveAgentAction(ctx, database.ApproveAgentActionParams{UserID: t.UserID, ID: database.ID(id), ApprovalStatus: status})
 	if e != nil {
@@ -132,7 +203,7 @@ func (s *Service) ApproveAction(ctx context.Context, t principal.Principal, id s
 		return nil, apperror.Fail("ACTION_NOT_PENDING", "The action is not pending or does not belong to the user.", 409)
 	}
 	result := map[string]string{"approvalStatus": status}
-	e = q.RecordAudit(ctx, database.RecordAuditParams{UserID: t.UserID, ActorType: "human", Action: "approve_agent_action", ResourceType: "agent_actions", ResourceID: id, Before: []byte(`{"approvalStatus":"pending"}`), After: jsonBytes(result), Metadata: []byte(`{}`)})
+	e = q.RecordAudit(ctx, database.RecordAuditParams{UserID: t.UserID, ActorType: t.ActorType, Action: "approve_agent_action", ResourceType: "agent_actions", ResourceID: id, Before: []byte(`{"approvalStatus":"pending"}`), After: jsonBytes(result), Metadata: metadata})
 	if e != nil {
 		return nil, e
 	}

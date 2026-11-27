@@ -34,6 +34,9 @@ type Change struct {
 
 // Mutate claims the retry key and commits stock, ledger, audit and the response together.
 func (s *Service) Mutate(ctx context.Context, t principal.Principal, key, operation string, raw []byte, fn func(*database.Queries) (Change, error)) (json.RawMessage, error) {
+	if err := rejectMCPSettings(t, operation); err != nil {
+		return nil, err
+	}
 	if !validate.ID(key) {
 		return nil, apperror.Fail("IDEMPOTENCY_REQUIRED", "Send an Idempotency-Key header containing a UUID.", 400)
 	}
@@ -43,8 +46,10 @@ func (s *Service) Mutate(ctx context.Context, t principal.Principal, key, operat
 	}
 	defer database.Rollback(ctx, tx)
 	q := s.Q.WithTx(tx)
-	if _, err = q.SessionActive(ctx, database.SessionActiveParams{UserID: database.ID(t.UserID), SessionID: database.ID(t.SessionID)}); err != nil {
-		return nil, apperror.Fail("FORBIDDEN", "The session is no longer valid.", 403)
+	if t.ActorType != "mcp" {
+		if _, err = q.SessionActive(ctx, database.SessionActiveParams{UserID: database.ID(t.UserID), SessionID: database.ID(t.SessionID)}); err != nil {
+			return nil, apperror.Fail("FORBIDDEN", "The session is no longer valid.", 403)
+		}
 	}
 	if err = q.ClaimIdempotency(ctx, database.ClaimIdempotencyParams{UserID: t.UserID, Key: database.ID(key), Operation: operation, RequestHash: hash(raw)}); err != nil {
 		return nil, err
@@ -59,7 +64,8 @@ func (s *Service) Mutate(ctx context.Context, t principal.Principal, key, operat
 	if len(claim.Response) > 0 {
 		return json.RawMessage(claim.Response), tx.Commit(ctx)
 	}
-	if t.ActorType == "ai" {
+	agentic := t.ActorType == "ai" || t.ActorType == "mcp"
+	if agentic {
 		if !validate.ID(t.ActionID) {
 			return nil, apperror.Fail("ACTION_REQUIRED", "The tool must register its action before it runs.", 400)
 		}
@@ -67,7 +73,7 @@ func (s *Service) Mutate(ctx context.Context, t principal.Principal, key, operat
 		if e != nil {
 			return nil, apperror.DomainError(e)
 		}
-		if action.ToolName != operation || hash(action.ToolInput) != hash(raw) || action.Status != "pending" {
+		if action.ActorType != t.ActorType || (t.ActorType == "mcp" && action.ClientID != clientID(t)) || action.ToolName != operation || hash(action.ToolInput) != hash(raw) || action.Status != "pending" {
 			return nil, apperror.Fail("ACTION_MISMATCH", "The action does not match this operation.", 409)
 		}
 		if action.ApprovalStatus == "rejected" {
@@ -93,10 +99,14 @@ func (s *Service) Mutate(ctx context.Context, t principal.Principal, key, operat
 	if after == nil {
 		after = change.Result
 	}
-	if err = q.RecordAudit(ctx, database.RecordAuditParams{UserID: t.UserID, ActorType: t.ActorType, Action: operation, ResourceType: strings.Split(operation, "/")[2], ResourceID: change.ID, Before: jsonBytes(change.Before), After: jsonBytes(after), Metadata: jsonBytes(map[string]string{"idempotencyKey": key, "agentActionId": t.ActionID})}); err != nil {
+	metadata := map[string]string{"idempotencyKey": key, "agentActionId": t.ActionID}
+	if t.ActorType == "mcp" {
+		metadata["clientId"] = t.ClientID
+	}
+	if err = q.RecordAudit(ctx, database.RecordAuditParams{UserID: t.UserID, ActorType: t.ActorType, Action: operation, ResourceType: strings.Split(operation, "/")[2], ResourceID: change.ID, Before: jsonBytes(change.Before), After: jsonBytes(after), Metadata: jsonBytes(metadata)}); err != nil {
 		return nil, err
 	}
-	if t.ActorType == "ai" {
+	if agentic {
 		if err = q.CompleteAgentAction(ctx, database.CompleteAgentActionParams{UserID: t.UserID, ID: database.ID(t.ActionID), Result: result, Status: "completed"}); err != nil {
 			return nil, err
 		}

@@ -3,7 +3,7 @@
   "info": {
     "title": "OpenStock AI Inventory API",
     "version": "1.0.0",
-    "description": "Single-user API. Better Auth EdDSA JWT (sub + sid) verified against JWKS; the agent service adds X-Agent-Secret. Decimal strings; transactional mutations with UUID idempotency; destructive agent actions always need human approval."
+    "description": "Single-user API. Better Auth EdDSA JWT verified against JWKS. A session token carries sub + sid; the agent service adds X-Agent-Secret. An MCP client's token carries sub + act \"mcp\" + cid (the OAuth client id), scope (the OAuth scopes the owner granted) and no sid; every MCP call needs inventory:read and every non-GET call also needs inventory:write, else 403 INSUFFICIENT_SCOPE, and the MCP service adds X-MCP-Secret (the secret is optional on the server: when it is not configured every MCP token is rejected with 403). X-MCP-Secret is only valid with an MCP token and never together with X-Agent-Secret; a session token with X-MCP-Secret is rejected with 403. Decimal strings; transactional mutations with UUID idempotency; destructive agent actions always need human approval."
   },
   "servers": [
     {
@@ -31,7 +31,8 @@
             "type": "object",
             "properties": {
               "code": {
-                "type": "string"
+                "type": "string",
+                "description": "Stable error code. Agent action codes include ACTION_MISMATCH, ACTION_REJECTED, ACTION_REQUIRED, ACTION_STALE, ACTION_NOT_PENDING, APPROVAL_REQUIRED and OWNER_APPROVAL_REQUIRED (403: an MCP client tried to approve a high-risk or destructive action; only the owner can)."
               },
               "message": {
                 "type": "string"
@@ -365,7 +366,8 @@
             "type": "string"
           },
           "actor_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system."
           },
           "user_id": {
             "type": "string",
@@ -698,7 +700,8 @@
           "operation",
           "toolInput"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Registers a tool call before it runs. Allowed for the agent service (ai) and MCP clients (mcp). Registering the same id again must repeat the same operation, input, conversation, actor type and client id, otherwise 409 ACTION_MISMATCH."
       },
       "ActionCreated": {
         "type": "object",
@@ -709,11 +712,16 @@
           },
           "approvalStatus": {
             "type": "string"
+          },
+          "ownerApprovalRequired": {
+            "type": "boolean",
+            "description": "True when the owner must approve in the OpenStock app (the write is high risk or destructive, so an MCP client cannot approve it). Always false for GET operations."
           }
         },
         "required": [
           "id",
-          "approvalStatus"
+          "approvalStatus",
+          "ownerApprovalRequired"
         ],
         "additionalProperties": false
       },
@@ -828,7 +836,8 @@
             "format": "uuid"
           },
           "actor_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system."
           },
           "action": {
             "type": "string"
@@ -1131,7 +1140,8 @@
             "pattern": "^\\d+\\.\\d{2}$"
           },
           "actor_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system."
           }
         },
         "required": [
@@ -1239,7 +1249,8 @@
             "format": "uuid"
           },
           "actor_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system."
           },
           "action": {
             "type": "string"
@@ -1388,7 +1399,8 @@
             "type": "string"
           },
           "actor_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Who made the change: human (the owner in the UI), ai (the built-in agent), mcp (an external MCP client) or system."
           },
           "created_at": {
             "type": "string",
@@ -1755,6 +1767,84 @@
           "total_spend",
           "purchases",
           "suppliers"
+        ],
+        "additionalProperties": false
+      },
+      "ActionView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "toolInput": {},
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "failed"
+            ]
+          },
+          "approvalStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "not_required"
+            ]
+          },
+          "actorType": {
+            "type": "string",
+            "enum": [
+              "ai",
+              "mcp"
+            ]
+          },
+          "clientId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "OAuth client id of the MCP client that registered the action; null for the agent."
+          },
+          "ownerApprovalRequired": {
+            "type": "boolean"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "toolInput",
+          "status",
+          "approvalStatus",
+          "actorType",
+          "clientId",
+          "ownerApprovalRequired",
+          "startedAt",
+          "completedAt",
+          "error"
         ],
         "additionalProperties": false
       }
@@ -2665,6 +2755,7 @@
     "/v1/agent-actions": {
       "get": {
         "operationId": "get_v1_agent_actions",
+        "description": "Owner and agent only. 403 FORBIDDEN for an mcp principal, which reads its own action by id.",
         "parameters": [
           {
             "in": "query",
@@ -2747,7 +2838,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Allowed for ai and mcp principals; the action stores the actor type and, for mcp, the client id. 403 FORBIDDEN for any other caller, and for an mcp principal registering PATCH /v1/settings."
       }
     },
     "/v1/audit-logs": {
@@ -3084,10 +3176,48 @@
               }
             }
           }
-        }
+        },
+        "description": "A signed-in human may approve or reject any pending action. An mcp principal may decide only on a pending action registered by its own client: rejecting is always allowed, approving is allowed only when the stored operation and input are neither high risk nor destructive (otherwise 403 OWNER_APPROVAL_REQUIRED). Another client's action, or the agent's, answers 404. The decision is audited with the caller's actor type; for mcp the metadata holds agentActionId and clientId."
       }
     },
     "/v1/agent-actions/{id}": {
+      "get": {
+        "operationId": "get_v1_agent_actions__id_",
+        "description": "Reads one agent action. A human sees any action, the agent (ai) sees ai actions, and an mcp client sees only its own client's mcp actions; anything else answers 404.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Domain error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
       "patch": {
         "operationId": "patch_v1_agent_actions__id_",
         "parameters": [
@@ -3132,7 +3262,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Agent (ai) only. MCP clients do not register reads."
       }
     },
     "/v1/agent-sessions": {
@@ -3169,7 +3300,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Agent (ai) only."
       }
     },
     "/v1/agent-sessions/{id}": {

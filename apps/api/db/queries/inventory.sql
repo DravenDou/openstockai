@@ -120,7 +120,7 @@ INSERT INTO purchase_order_items (purchase_id,product_id,quantity,cost_price) VA
 SELECT id,reference,warehouse_id,supplier_id,created_at FROM purchase_orders ORDER BY created_at DESC LIMIT $1 OFFSET $2;
 
 -- name: CreateAgentAction :one
-INSERT INTO agent_actions (id,user_id,conversation_id,tool_name,tool_input,approval_status) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING RETURNING id;
+INSERT INTO agent_actions (id,user_id,conversation_id,tool_name,tool_input,approval_status,actor_type,client_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING RETURNING id;
 
 -- name: LowStock :many
 SELECT p.id,p.name,p.sku,p.minimum,p.unit_code,u.symbol AS unit_symbol,coalesce(sum(i.quantity),0)::numeric AS stock
@@ -136,6 +136,8 @@ SELECT id,conversation_id,tool_name,tool_input,result,status,approval_status,sta
 FROM agent_actions WHERE user_id=$1 ORDER BY started_at DESC LIMIT 100;
 -- name: GetAgentAction :one
 SELECT * FROM agent_actions WHERE user_id=$1 AND id=$2 FOR UPDATE;
+-- name: ReadAgentAction :one
+SELECT * FROM agent_actions WHERE user_id=$1 AND id=$2;
 -- name: ApproveAgentAction :execrows
 UPDATE agent_actions SET approval_status=$3 WHERE user_id=$1 AND id=$2 AND status='pending' AND approval_status='pending';
 -- name: CompleteAgentAction :exec

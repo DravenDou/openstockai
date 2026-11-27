@@ -61,6 +61,7 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 	token.Header["kid"] = "test"
 	rawToken, _ := token.SignedString(priv)
 	secret := strings.Repeat("s", 32)
+	mcpSecret := strings.Repeat("m", 32)
 	runtimeConfig, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +77,7 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 	}
 	defer runtimePool.Close()
 	services := app.New(runtimePool)
-	server := httptest.NewServer(Router(services, auth.NewVerifier(jwks.URL, "openstockai", "api"), secret))
+	server := httptest.NewServer(Router(services, auth.NewVerifier(jwks.URL, "openstockai", "api"), secret, mcpSecret))
 	defer server.Close()
 	newCaller := func(rawToken string) apiTestCall {
 		return func(method, path, key string, payload any, agent bool, actionID string) (int, map[string]any) {
@@ -332,6 +333,154 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 		_ = pool.QueryRow(ctx, `SELECT actor_type FROM stock_movements ORDER BY created_at DESC LIMIT 1`).Scan(&actor)
 		if actor != "ai" {
 			t.Fatal("AI provenance lost")
+		}
+	})
+	t.Run("MCP actor approvals and provenance", func(t *testing.T) {
+		mcpToken := func(cid string) string {
+			tk := jwt.NewWithClaims(jwt.SigningMethodEdDSA, auth.Claims{Act: "mcp", CID: cid, Scope: "inventory:read inventory:write", RegisteredClaims: jwt.RegisteredClaims{Subject: user, Issuer: "openstockai", Audience: jwt.ClaimStrings{"api"}, ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}})
+			tk.Header["kid"] = "test"
+			raw, _ := tk.SignedString(priv)
+			return raw
+		}
+		mcpCall := func(token, method, path, key string, payload any, actionID string) (int, map[string]any) {
+			body, _ := json.Marshal(payload)
+			req, _ := http.NewRequest(method, server.URL+"/v1/"+path, bytes.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", key)
+			req.Header.Set("X-MCP-Secret", mcpSecret)
+			req.Header.Set("X-Agent-Action-ID", actionID)
+			res, e := http.DefaultClient.Do(req)
+			if e != nil {
+				t.Error(e)
+				return 0, nil
+			}
+			defer res.Body.Close()
+			var value map[string]any
+			_ = json.NewDecoder(res.Body).Decode(&value)
+			return res.StatusCode, value
+		}
+		code := func(v map[string]any) string {
+			e, _ := v["error"].(map[string]any)
+			c, _ := e["code"].(string)
+			return c
+		}
+		clientA, clientB := mcpToken("client-a"), mcpToken("client-b")
+		register := func(token, operation string, input any) (string, int, map[string]any) {
+			id := uuid.NewString()
+			status, result := mcpCall(token, "POST", "agent-actions", "", map[string]any{"id": id, "conversationId": "mcp", "operation": operation, "toolInput": input}, "")
+			return id, status, result
+		}
+		// Low risk: the client may approve its own action, and nobody else's.
+		payload := adjust(5, warehouse)
+		low, status, result := register(clientA, "POST /v1/inventory/adjustments", payload)
+		if status != 200 || result["approvalStatus"] != "pending" || result["ownerApprovalRequired"] != false {
+			t.Fatalf("register: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientB, "POST", "agent-actions", "", map[string]any{"id": low, "conversationId": "mcp", "operation": "POST /v1/inventory/adjustments", "toolInput": payload}, ""); status != 409 || code(result) != "ACTION_MISMATCH" {
+			t.Fatalf("another client re-registered the action: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientA, "POST", "agent-actions", "", map[string]any{"id": low, "conversationId": "mcp", "operation": "POST /v1/inventory/adjustments", "toolInput": payload}, ""); status != 200 || result["ownerApprovalRequired"] != false {
+			t.Fatalf("idempotent re-register: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientA, "GET", "agent-actions/"+low, "", nil, ""); status != 200 || result["actorType"] != "mcp" || result["clientId"] != "client-a" || result["operation"] != "POST /v1/inventory/adjustments" || result["ownerApprovalRequired"] != false || result["approvalStatus"] != "pending" {
+			t.Fatalf("own action: %d %v", status, result)
+		}
+		if status, _ = mcpCall(clientB, "GET", "agent-actions/"+low, "", nil, ""); status != 404 {
+			t.Fatalf("another client read the action: %d", status)
+		}
+		if status, result = call("GET", "agent-actions/"+low, "", nil, false, ""); status != 200 || result["clientId"] != "client-a" {
+			t.Fatalf("owner read: %d %v", status, result)
+		}
+		if status, _ = call("GET", "agent-actions/"+low, "", nil, true, ""); status != 404 {
+			t.Fatalf("the agent read an MCP action: %d", status)
+		}
+		if status, result = mcpCall(clientA, "POST", "inventory/adjustments", low, payload, low); status != 409 || code(result) != "APPROVAL_REQUIRED" {
+			t.Fatalf("unapproved mutation: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientB, "POST", "agent-actions/"+low+"/approval", "", map[string]bool{"approved": true}, ""); status != 404 {
+			t.Fatalf("another client approved: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientB, "POST", "inventory/adjustments", low, payload, low); status != 409 || code(result) != "ACTION_MISMATCH" {
+			t.Fatalf("another client executed: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientA, "POST", "agent-actions/"+low+"/approval", "", map[string]bool{"approved": true}, ""); status != 200 || result["approvalStatus"] != "approved" {
+			t.Fatalf("approve: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientA, "POST", "inventory/adjustments", low, payload, ""); status != 400 || code(result) != "ACTION_REQUIRED" {
+			t.Fatalf("mutation without an action id: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientA, "POST", "inventory/adjustments", low, payload, low); status != 200 {
+			t.Fatalf("execute: %d %v", status, result)
+		}
+		var actor, metaClient, auditActor, actionStatus string
+		_ = pool.QueryRow(ctx, `SELECT actor_type FROM stock_movements ORDER BY created_at DESC LIMIT 1`).Scan(&actor)
+		_ = pool.QueryRow(ctx, `SELECT actor_type,coalesce(metadata->>'clientId','') FROM audit_logs WHERE action='POST /v1/inventory/adjustments' ORDER BY created_at DESC LIMIT 1`).Scan(&auditActor, &metaClient)
+		_ = pool.QueryRow(ctx, `SELECT status FROM agent_actions WHERE id=$1`, low).Scan(&actionStatus)
+		if actor != "mcp" || auditActor != "mcp" || metaClient != "client-a" || actionStatus != "completed" {
+			t.Fatalf("MCP provenance: movement=%q audit=%q client=%q action=%q", actor, auditActor, metaClient, actionStatus)
+		}
+		var approvalActor, approvalClient string
+		_ = pool.QueryRow(ctx, `SELECT actor_type,metadata->>'clientId' FROM audit_logs WHERE action='approve_agent_action' AND resource_id=$1`, low).Scan(&approvalActor, &approvalClient)
+		if approvalActor != "mcp" || approvalClient != "client-a" {
+			t.Fatalf("approval audit: %q %q", approvalActor, approvalClient)
+		}
+		// Settings are owner-only, and the action list is not visible to an MCP client.
+		if _, status, result = register(clientA, "PATCH /v1/settings", map[string]any{"autoApproval": "automatic"}); status != 403 || code(result) != "FORBIDDEN" {
+			t.Fatalf("mcp registered a settings change: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientA, "GET", "agent-actions", "", nil, ""); status != 403 || code(result) != "FORBIDDEN" {
+			t.Fatalf("mcp listed agent actions: %d %v", status, result)
+		}
+		// High risk and destructive: the client can only reject, the owner approves in the app.
+		high, status, result := register(clientA, "POST /v1/inventory/adjustments", adjust(2000, warehouse))
+		if status != 200 || result["approvalStatus"] != "pending" || result["ownerApprovalRequired"] != true {
+			t.Fatalf("register high risk: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientA, "POST", "agent-actions/"+high+"/approval", "", map[string]bool{"approved": true}, ""); status != 403 || code(result) != "OWNER_APPROVAL_REQUIRED" {
+			t.Fatalf("client approved a high-risk action: %d %v", status, result)
+		}
+		if status, _ = mcpCall(clientA, "POST", "inventory/adjustments", high, adjust(2000, warehouse), high); status != 409 {
+			t.Fatalf("high-risk action executed without approval: %d", status)
+		}
+		if status, result = mcpCall(clientA, "POST", "agent-actions/"+high+"/approval", "", map[string]bool{"approved": false}, ""); status != 200 || result["approvalStatus"] != "rejected" {
+			t.Fatalf("reject: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientA, "POST", "inventory/adjustments", high, adjust(2000, warehouse), high); status != 403 || code(result) != "ACTION_REJECTED" {
+			t.Fatalf("rejected action executed: %d %v", status, result)
+		}
+		destructive, status, result := register(clientA, "DELETE /v1/products/"+product, map[string]any{})
+		if status != 200 || result["approvalStatus"] != "pending" || result["ownerApprovalRequired"] != true {
+			t.Fatalf("register delete: %d %v", status, result)
+		}
+		if status, result = mcpCall(clientA, "POST", "agent-actions/"+destructive+"/approval", "", map[string]bool{"approved": true}, ""); status != 403 || code(result) != "OWNER_APPROVAL_REQUIRED" {
+			t.Fatalf("client approved a delete: %d %v", status, result)
+		}
+		if status, result = call("POST", "agent-actions/"+destructive+"/approval", "", map[string]bool{"approved": false}, false, ""); status != 200 {
+			t.Fatalf("owner approval path: %d %v", status, result)
+		}
+		// The agent's actions and the agent-only endpoints stay out of reach.
+		agentAction := uuid.NewString()
+		if status, _ = call("POST", "agent-actions", "", map[string]any{"id": agentAction, "conversationId": "test", "operation": "POST /v1/inventory/adjustments", "toolInput": adjust(1, warehouse)}, true, ""); status != 200 {
+			t.Fatal("agent registration broke")
+		}
+		if status, _ = mcpCall(clientA, "GET", "agent-actions/"+agentAction, "", nil, ""); status != 404 {
+			t.Fatalf("MCP client read an agent action: %d", status)
+		}
+		if status, _ = mcpCall(clientA, "POST", "agent-actions/"+agentAction+"/approval", "", map[string]bool{"approved": true}, ""); status != 404 {
+			t.Fatalf("MCP client approved an agent action: %d", status)
+		}
+		if status, _ = mcpCall(clientA, "PATCH", "agent-actions/"+low, "", map[string]any{"status": "completed"}, low); status != 403 {
+			t.Fatalf("MCP client completed a read action: %d", status)
+		}
+		if status, _ = mcpCall(clientA, "POST", "agent-sessions", "", map[string]string{"sessionId": "mcp"}, ""); status != 403 {
+			t.Fatalf("MCP client bound a conversation: %d", status)
+		}
+		if status, _ = mcpCall(clientA, "GET", "products", "", nil, ""); status != 200 {
+			t.Fatalf("MCP read: %d", status)
+		}
+		if status, _ = call("GET", "agent-actions/"+uuid.NewString(), "", nil, false, ""); status != 404 {
+			t.Fatalf("unknown action: %d", status)
 		}
 	})
 	t.Run("atomic purchases and retry", func(t *testing.T) {

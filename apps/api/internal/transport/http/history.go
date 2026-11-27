@@ -58,7 +58,7 @@ func registerHistory(r chi.Router, s *inventory.Service) {
 			return nil, err
 		}
 		actor := r.URL.Query().Get("actor")
-		if actor != "" && actor != "human" && actor != "ai" && actor != "system" {
+		if actor != "" && actor != "human" && actor != "ai" && actor != "mcp" && actor != "system" {
 			return nil, apperror.Fail("INVALID_QUERY", "Invalid actor.", 400)
 		}
 		rows, err := s.Q.AuditHistory(r.Context(), database.AuditHistoryParams{Query: o.search, Actor: actor, BeforeID: id, BeforeDate: date, PageLimit: o.limit + 1})

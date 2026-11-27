@@ -85,7 +85,7 @@ Input size is estimated from the serialized prompt and tool schemas as UTF-8 byt
 `packages/server/src/ai` resolves `LLM_PROVIDER` to the AI SDK:
 
 - `openai-compatible` (default): Chat Completions against `LLM_BASE_URL`. Works with OpenAI, OpenRouter, DeepInfra, vLLM and LM Studio.
-- `anthropic`: the native Anthropic provider.
+- `anthropic`: the native Anthropic provider. Leave `LLM_BASE_URL` unset (a preset endpoint from another provider is rejected so the key is not leaked).
 - `ollama`: the same Chat Completions client pointed at the `ollama` Compose service, no key needed. Small local models are noticeably weaker at tool use.
 
 Configuration errors surface as `AI_NOT_CONFIGURED` in the chat, and secrets are never echoed.

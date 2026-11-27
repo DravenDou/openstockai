@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { estimateCostUsd, llmConfig, llmConfigProblem, llmPublicInfo } from "../src/ai/config";
+import {
+  estimateCostUsd,
+  LlmConfigError,
+  llmConfig,
+  llmConfigProblem,
+  llmPublicInfo,
+} from "../src/ai/config";
 import { createLanguageModel, llmModel } from "../src/ai/model";
 
 test("openai-compatible is the default provider and needs a key for remote hosts", () => {
@@ -116,5 +122,76 @@ test("cost estimates need configured prices", () => {
     llmConfig({ LLM_API_KEY: "k", LLM_MODEL: "m", LLM_PRICE_OUTPUT_PER_MTOK: "3.5" })
       .priceOutputPerMTok,
     3.5,
+  );
+});
+
+test("anthropic rejects the OpenAI-compatible preset endpoints so the key is never leaked", () => {
+  const anthropic = {
+    LLM_PROVIDER: "anthropic",
+    LLM_API_KEY: "sk-secret-123",
+    LLM_MODEL: "claude-sonnet-5-5",
+  };
+  const cases: [string, string][] = [
+    ["https://api.deepinfra.com/v1/openai", "DeepInfra"],
+    ["https://openrouter.ai/api/v1", "OpenRouter"],
+    ["https://api.openai.com/v1", "OpenAI"],
+    ["https://api.deepinfra.com/v1/openai/", "DeepInfra"],
+    ["https://API.DeepInfra.com/v1/openai", "DeepInfra"],
+    ["https://OPENROUTER.AI/api/v1/", "OpenRouter"],
+  ];
+  for (const [baseURL, name] of cases) {
+    const problem = llmConfigProblem({ ...anthropic, LLM_BASE_URL: baseURL });
+    assert.match(
+      problem ?? "",
+      new RegExp(`points at the ${name} OpenAI-compatible endpoint`),
+      baseURL,
+    );
+    assert.match(problem ?? "", /LLM_PROVIDER=anthropic/);
+    assert.doesNotMatch(problem ?? "", /sk-secret/);
+    assert.throws(() => llmConfig({ ...anthropic, LLM_BASE_URL: baseURL }), LlmConfigError);
+  }
+});
+
+test("anthropic still accepts a custom proxy URL or no base URL", () => {
+  const anthropic = { LLM_PROVIDER: "anthropic", LLM_API_KEY: "k", LLM_MODEL: "claude-sonnet-5-5" };
+  for (const baseURL of [
+    "https://gateway.example.com/anthropic",
+    "https://api.anthropic.com/v1",
+    "https://api.deepinfra.com/v1/other",
+    "http://localhost:4000",
+  ])
+    assert.equal(llmConfigProblem({ ...anthropic, LLM_BASE_URL: baseURL }), undefined, baseURL);
+  assert.equal(llmConfigProblem(anthropic), undefined);
+  assert.equal(llmConfig(anthropic).baseURL, undefined);
+});
+
+test("openai-compatible still accepts every preset endpoint", () => {
+  for (const baseURL of [
+    "https://api.deepinfra.com/v1/openai",
+    "https://openrouter.ai/api/v1",
+    "https://api.openai.com/v1",
+    "https://api.anthropic.com/v1",
+  ])
+    assert.equal(
+      llmConfigProblem({ LLM_BASE_URL: baseURL, LLM_API_KEY: "k", LLM_MODEL: "m" }),
+      undefined,
+      baseURL,
+    );
+});
+
+test("llmModel turns the anthropic preset mismatch into AI_NOT_CONFIGURED before any model is built", () => {
+  assert.throws(
+    () =>
+      llmModel(
+        {},
+        {
+          LLM_PROVIDER: "anthropic",
+          LLM_API_KEY: "k",
+          LLM_MODEL: "m",
+          LLM_BASE_URL: "https://api.deepinfra.com/v1/openai",
+        },
+      ),
+    (error: { code?: string; message: string }) =>
+      error.code === "AI_NOT_CONFIGURED" && /DeepInfra/.test(error.message),
   );
 });

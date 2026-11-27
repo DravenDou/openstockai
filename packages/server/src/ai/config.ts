@@ -28,6 +28,23 @@ export const defaultBaseURL: Record<LlmProvider, string | undefined> = {
   ollama: "http://ollama:11434/v1",
 };
 
+// OpenAI-compatible endpoints shipped as presets in .env.example. An Anthropic key must never
+// be sent to them.
+const openAiCompatiblePresets = [
+  { name: "DeepInfra", url: "https://api.deepinfra.com/v1/openai" },
+  { name: "OpenRouter", url: "https://openrouter.ai/api/v1" },
+  { name: "OpenAI", url: "https://api.openai.com/v1" },
+] as const;
+
+function endpointKey(url: URL) {
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`.toLowerCase();
+}
+
+function matchedPreset(url: URL) {
+  const key = endpointKey(url);
+  return openAiCompatiblePresets.find((preset) => endpointKey(new URL(preset.url)) === key);
+}
+
 function text(env: Env, key: string) {
   return env[key]?.trim() || undefined;
 }
@@ -66,6 +83,11 @@ export function llmConfig(env: Env = process.env): LlmConfig {
     if (!url || !/^https?:$/.test(url.protocol) || url.username || url.password)
       throw new LlmConfigError(
         "LLM_BASE_URL must be an http(s) URL without credentials, for example https://api.openai.com/v1.",
+      );
+    const preset = provider === "anthropic" ? matchedPreset(url) : undefined;
+    if (preset)
+      throw new LlmConfigError(
+        `LLM_BASE_URL points at the ${preset.name} OpenAI-compatible endpoint, but LLM_PROVIDER=anthropic. Remove or comment out LLM_BASE_URL (the Anthropic provider does not need one) so your Anthropic key is not sent to another provider.`,
       );
   }
   const model = text(env, "LLM_MODEL");

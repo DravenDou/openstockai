@@ -6,6 +6,8 @@
 --   docker compose --profile demo up -d
 -- Safe to re-run: it does nothing when the demo is already loaded or when the catalog is
 -- not empty, so it never mixes with real data. It creates no users or credentials.
+-- Seed rows belong to the 'system' actor with the nil UUID as user_id, because the API
+-- contract types every user_id as a UUID (Better Auth generates UUID user ids).
 -- The ledger is append-only, so the script only ever INSERTs into stock_movements, and
 -- inventory is derived from the ledger and verified against it before commit.
 \set ON_ERROR_STOP on
@@ -124,7 +126,7 @@ INSERT INTO seed_po VALUES
 CREATE FUNCTION pg_temp.seed_move(p uuid, w uuid, q numeric, t text, ref text, ts timestamptz, tr uuid)
 RETURNS void LANGUAGE sql AS $f$
   INSERT INTO stock_movements (product_id, warehouse_id, quantity, type, user_id, actor_type, reference, transfer_id, created_at)
-  VALUES (p, w, q, t, 'demo-seed', 'system', ref, tr, ts);
+  VALUES (p, w, q, t, '00000000-0000-0000-0000-000000000000', 'system', ref, tr, ts);
   INSERT INTO seed_stock VALUES (p, w, q) ON CONFLICT (product_id, warehouse_id)
   DO UPDATE SET qty = seed_stock.qty + EXCLUDED.qty;
 $f$;
@@ -181,7 +183,7 @@ BEGIN
       ts := base - interval '12 hours' - random() * interval '1 hour';
       po_wh := (SELECT id FROM warehouses WHERE name = po.wh);
       INSERT INTO purchase_orders (warehouse_id, supplier_id, reference, user_id, actor_type, created_at)
-      VALUES (po_wh, (SELECT id FROM seed_suppliers WHERE idx = po.sup), ref, 'demo-seed', 'system', ts)
+      VALUES (po_wh, (SELECT id FROM seed_suppliers WHERE idx = po.sup), ref, '00000000-0000-0000-0000-000000000000', 'system', ts)
       RETURNING id INTO po_id;
       items := 0;
       FOR p IN SELECT * FROM seed_products s
@@ -261,13 +263,13 @@ BEGIN
     RAISE EXCEPTION 'Demo seed: inventory does not match the ledger';
   END IF;
 
-  SELECT count(*) INTO n_po FROM purchase_orders WHERE user_id = 'demo-seed';
-  SELECT count(*) INTO n_mov FROM stock_movements WHERE user_id = 'demo-seed';
+  SELECT count(*) INTO n_po FROM purchase_orders WHERE user_id = '00000000-0000-0000-0000-000000000000';
+  SELECT count(*) INTO n_mov FROM stock_movements WHERE user_id = '00000000-0000-0000-0000-000000000000';
   SELECT count(*) INTO n_prod FROM seed_products;
   UPDATE settings SET settings = settings.settings || '{"store":"Ironwood Hardware"}'::jsonb
   WHERE settings.settings ->> 'store' = 'My store';
   INSERT INTO audit_logs (user_id, actor_type, action, resource_type, resource_id, after, metadata)
-  VALUES ('demo-seed', 'system', 'demo.seed', 'seed', 'demo',
+  VALUES ('00000000-0000-0000-0000-000000000000', 'system', 'demo.seed', 'seed', 'demo',
           jsonb_build_object('products', n_prod, 'purchases', n_po, 'movements', n_mov),
           '{"source":"docker/demo/seed.sql"}');
   RAISE NOTICE 'Demo data loaded: % products, % purchases, % stock movements.', n_prod, n_po, n_mov;

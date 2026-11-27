@@ -6,6 +6,7 @@ import {
   compactArgs,
   joinActions,
   operationLabel,
+  runWindow,
   type RunAction,
 } from "@openstockai/api-client/agent-runs";
 import { enrichDetail, enrichList, configuredPrices } from "@openstockai/server/ai/runs";
@@ -166,6 +167,8 @@ test("compactArgs drops secret-looking keys and truncates", () => {
 test("operationLabel names operations", () => {
   assert.equal(operationLabel("PATCH /v1/products/abc"), "Update product");
   assert.equal(operationLabel("DELETE /v1/categories/abc"), "Delete category");
+  assert.equal(operationLabel("DELETE /v1/products/abc"), "Archive product");
+  assert.equal(operationLabel("DELETE /v1/suppliers/abc"), "Delete supplier");
   assert.equal(operationLabel("POST /v1/inventory/adjustments"), "Adjust stock");
   assert.equal(operationLabel("POST /v1/products/abc/restore"), "Restore product");
   assert.equal(operationLabel("GET /v1/low-stock"), "Read low stock");
@@ -173,22 +176,27 @@ test("operationLabel names operations", () => {
 
 test("joinActions matches by id, falls back to order, and appends API-only writes", () => {
   const run = traceMetadata(raw);
-  const joined = joinActions(run.timeline, conversationId, [
-    action("call-write"),
-    action("call-del", {
-      tool_name: "DELETE /v1/products/x",
-      approval_status: "rejected",
-      status: "failed",
-      error: "Rejected by user.",
-    }),
-    action(null, { tool_name: "POST /v1/categories", approval_status: "pending" }),
-    action(null, {
-      id: "22222222-2222-4222-8222-222222222222",
-      tool_name: "GET /v1/products",
-      approval_status: "not_required",
-    }),
-    action("call-write", { conversation_id: "other" }),
-  ]);
+  const joined = joinActions(
+    run.timeline,
+    conversationId,
+    [
+      action("call-write"),
+      action("call-del", {
+        tool_name: "DELETE /v1/products/x",
+        approval_status: "rejected",
+        status: "failed",
+        error: "Rejected by user.",
+      }),
+      action(null, { tool_name: "POST /v1/categories", approval_status: "pending" }),
+      action(null, {
+        id: "22222222-2222-4222-8222-222222222222",
+        tool_name: "GET /v1/products",
+        approval_status: "not_required",
+      }),
+      action("call-write", { conversation_id: "other" }),
+    ],
+    runWindow(run),
+  );
   const write = joined.find((event) => event.callId === "call-write")!;
   assert.equal(write.args, "name=Hammer, sku=H-1");
   assert.equal(write.label, "Create product");
@@ -201,7 +209,12 @@ test("joinActions matches by id, falls back to order, and appends API-only write
   assert.equal(extra[0].label, "Create category");
   assert(!JSON.stringify(joined).includes("sk-secret"));
 
-  const fallback = joinActions(run.timeline.slice(1, 2), conversationId, [action(null)]);
+  const fallback = joinActions(
+    run.timeline.slice(1, 2),
+    conversationId,
+    [action(null)],
+    runWindow(run),
+  );
   assert.equal(fallback.length, 1);
   assert.equal(fallback[0].label, "Create product");
 });
@@ -223,4 +236,65 @@ test("cost and status enrichment use configured prices and pending actions", () 
     enrichList([{ ...summary, status: "error" }], [action("x")], prices)[0].status,
     "error",
   );
+});
+
+test("each turn of a conversation only shows its own actions and status", () => {
+  const prices = configuredPrices({});
+  const turn = (traceId: string, startedAt: string, durationMs: number) => ({
+    ...traceMetadata(raw),
+    status: "ok" as const,
+    traceId,
+    startedAt,
+    durationMs,
+    timeline: [] as ReturnType<typeof traceMetadata>["timeline"],
+  });
+  const t1 = turn("a".repeat(32), "2026-10-16T18:03:22.000Z", 5000);
+  const t2 = turn("b".repeat(32), "2026-10-16T18:03:29.000Z", 8700);
+  const t3 = turn("c".repeat(32), "2026-10-16T18:03:42.000Z", 6000);
+  const stock = action(null, {
+    id: "33333333-3333-4333-8333-333333333333",
+    tool_name: "POST /v1/inventory/adjustments",
+    status: "completed",
+    approval_status: "approved",
+    started_at: "2026-10-16T18:03:32.000Z",
+  });
+  const archive = action(null, {
+    id: "44444444-4444-4444-8444-444444444444",
+    tool_name: "DELETE /v1/products/x",
+    status: "pending",
+    approval_status: "rejected",
+    started_at: "2026-10-16T18:03:46.000Z",
+  });
+  const actions = [stock, archive];
+  const labels = (t: typeof t1) =>
+    enrichDetail(t, actions, prices).timeline.map((e) => [e.label, e.approval, e.outcome]);
+  assert.deepEqual(labels(t1), []);
+  assert.deepEqual(labels(t2), [["Adjust stock", "approved", "completed"]]);
+  assert.deepEqual(labels(t3), [["Archive product", "rejected", "rejected"]]);
+  for (const t of [t1, t2, t3]) assert.equal(enrichDetail(t, actions, prices).status, "ok");
+  assert.deepEqual(
+    enrichList(
+      [t1, t2, t3].map((t) => runSummarySchema.parse({ ...t, status: "ok" })),
+      actions,
+      prices,
+    ).map((r) => r.status),
+    ["ok", "ok", "ok"],
+  );
+});
+
+test("a pending approval inside the run window keeps that run awaiting approval", () => {
+  const prices = configuredPrices({});
+  const t = {
+    ...traceMetadata(raw),
+    status: "ok" as const,
+    startedAt: "2026-10-16T18:04:00.000Z",
+    durationMs: 3000,
+    timeline: [],
+  };
+  const pending = action(null, { started_at: "2026-10-16T18:04:02.000Z" });
+  const earlier = { ...t, startedAt: "2026-10-16T18:03:00.000Z" };
+  assert.equal(enrichDetail(t, [pending], prices).status, "awaiting_approval");
+  assert.equal(enrichDetail(t, [pending], prices).timeline.length, 1);
+  assert.equal(enrichDetail(earlier, [pending], prices).status, "ok");
+  assert.equal(enrichDetail(earlier, [pending], prices).timeline.length, 0);
 });

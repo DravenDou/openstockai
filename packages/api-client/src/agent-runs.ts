@@ -66,9 +66,28 @@ export function operationLabel(operation: string) {
   if (resource === "purchases" && method === "POST") return "Record purchase";
   if (resource === "settings" && method === "PATCH") return "Update settings";
   if (resource === "products" && third === "restore") return "Restore product";
+  // DELETE /v1/products/{id} only archives (soft delete); the other resources are really deleted.
+  if (resource === "products" && method === "DELETE") return "Archive product";
   if (resource in nouns && verbs[method]) return `${verbs[method]} ${nouns[resource]}`;
   if (method === "GET") return `Read ${resource.replace(/-/g, " ") || "data"}`;
   return operation.replace(/\/[0-9a-f-]{36}/g, "").slice(0, 100);
+}
+
+// Time window of one turn: trace start to end, padded by a small tolerance for clock skew.
+export type RunWindow = { startMs: number; endMs: number };
+const WINDOW_TOLERANCE_MS = 2000;
+
+export function runWindow(trace: { startedAt: string; durationMs: number }): RunWindow {
+  const start = Date.parse(trace.startedAt);
+  return {
+    startMs: start - WINDOW_TOLERANCE_MS,
+    endMs: start + trace.durationMs + WINDOW_TOLERANCE_MS,
+  };
+}
+
+export function inWindow(action: RunAction, window: RunWindow) {
+  const at = Date.parse(action.started_at);
+  return at >= window.startMs && at <= window.endMs;
 }
 
 function approvalFrom(status: string): TimelineEvent["approval"] {
@@ -85,11 +104,14 @@ function approvalFrom(status: string): TimelineEvent["approval"] {
  *    they are paired in chronological order.
  * 3. Leftover write actions (for example pending approvals absent from the trace)
  *    are appended as API-only rows.
+ * Steps 2 and 3 only consider actions that started inside the run's time window, so the
+ * other turns of the same conversation never leak into this run.
  */
 export function joinActions(
   timeline: TimelineEvent[],
   conversationId: string | null,
   actions: RunAction[],
+  window: RunWindow,
 ): TimelineEvent[] {
   if (!conversationId) return timeline;
   const own = actions
@@ -112,10 +134,11 @@ export function joinActions(
     if (action && !used.has(action.id)) apply(event, action);
   }
   const looseEvents = tools.filter((event) => !event.actionId);
-  const looseActions = own.filter((action) => !used.has(action.id));
+  const inRun = own.filter((action) => inWindow(action, window));
+  const looseActions = inRun.filter((action) => !used.has(action.id));
   if (looseEvents.length && looseEvents.length === looseActions.length)
     looseEvents.forEach((event, index) => apply(event, looseActions[index]));
-  for (const action of own) {
+  for (const action of inRun) {
     if (used.has(action.id) || action.tool_name.startsWith("GET ")) continue;
     result.push({
       id: `action:${action.id}`.slice(0, 100),
@@ -127,7 +150,11 @@ export function joinActions(
       offsetMs: null,
       durationMs: null,
       startedAt: new Date(action.started_at).toISOString(),
-      outcome: action.status,
+      // A rejected action never ran; Go keeps its status pending.
+      outcome:
+        action.approval_status === "rejected" && action.status === "pending"
+          ? "rejected"
+          : action.status,
       approval: approvalFrom(action.approval_status),
       callId: null,
       actionId: action.id,

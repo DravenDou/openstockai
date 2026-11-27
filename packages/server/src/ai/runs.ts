@@ -1,4 +1,9 @@
-import { joinActions, type RunAction } from "@openstockai/api-client/agent-runs";
+import {
+  inWindow,
+  joinActions,
+  runWindow,
+  type RunAction,
+} from "@openstockai/api-client/agent-runs";
 import type { RunStatus, TraceDetail, TraceSummary } from "@openstockai/api-client/agent-traces";
 import { estimateCostUsd, llmConfig } from "./config";
 
@@ -29,12 +34,21 @@ export function withCost<T extends Costed>(run: T, prices: Prices) {
   return { ...run, costUsd: estimateCostUsd(prices, run) };
 }
 
-// A pending approval stored in Go makes the run "awaiting approval" unless it already failed.
-function statusWith(status: RunStatus, conversationId: string | null, actions: RunAction[]) {
+// A pending approval created during this run makes it "awaiting approval" unless it already failed.
+function statusWith(
+  status: RunStatus,
+  conversationId: string | null,
+  actions: RunAction[],
+  trace: { startedAt: string; durationMs: number },
+) {
+  const window = runWindow(trace);
   const pending =
     conversationId !== null &&
     actions.some(
-      (action) => action.conversation_id === conversationId && action.approval_status === "pending",
+      (action) =>
+        action.conversation_id === conversationId &&
+        action.approval_status === "pending" &&
+        inWindow(action, window),
     );
   return status === "ok" && pending ? "awaiting_approval" : status;
 }
@@ -45,7 +59,10 @@ export function enrichList<T extends TraceSummary & Costed & { status: RunStatus
   prices: Prices,
 ) {
   return items.map((item) =>
-    withCost({ ...item, status: statusWith(item.status, item.conversationId, actions) }, prices),
+    withCost(
+      { ...item, status: statusWith(item.status, item.conversationId, actions, item) },
+      prices,
+    ),
   );
 }
 
@@ -54,7 +71,7 @@ export function enrichDetail(
   actions: RunAction[],
   prices: Prices,
 ): TraceDetail {
-  const timeline = joinActions(trace.timeline, trace.conversationId, actions);
+  const timeline = joinActions(trace.timeline, trace.conversationId, actions, runWindow(trace));
   const base = withCost({ ...trace, timeline }, prices);
-  return { ...base, status: statusWith(base.status, trace.conversationId, actions) };
+  return { ...base, status: statusWith(base.status, trace.conversationId, actions, trace) };
 }

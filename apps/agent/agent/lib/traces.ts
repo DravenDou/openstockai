@@ -42,6 +42,11 @@ const errorCode = (attributes: Record<string, unknown>) => {
   const value = text(attributes, "error.type");
   return value && /^[\w.:-]{1,80}$/.test(value) ? value : null;
 };
+// An owner rejecting an approval ends the tool span with this code; it is an expected outcome.
+const isDenial = (span: CliSpan) =>
+  span.name === "agent.action" &&
+  (span.attributes["error.type"] === "TOOL_EXECUTION_DENIED" ||
+    span.attributes["agent.action.error.code"] === "TOOL_EXECUTION_DENIED");
 const approvalOutcome = (outcome: string | null): TimelineEvent["approval"] =>
   outcome === "approved" ? "approved" : outcome ? "rejected" : null;
 
@@ -154,7 +159,9 @@ export function traceMetadata(value: unknown) {
     return counts.length ? counts.reduce((sum, count) => sum + count, 0) : null;
   };
   const timeline = traceTimeline(trace.spans, start);
-  const errorSpanCount = trace.spans.filter((span) => span.statusCode === 2).length;
+  const errorSpanCount = trace.spans.filter(
+    (span) => span.statusCode === 2 && !isDenial(span),
+  ).length;
   const models = trace.spans.flatMap((span) => {
     const model = text(span.attributes, "gen_ai.request.model", "gen_ai.response.model");
     return model ? [model] : [];

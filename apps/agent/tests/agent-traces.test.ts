@@ -221,3 +221,46 @@ test("no traces yet is an empty page, and an unknown trace is still a 404", asyn
   process.env.EVE_CLI_PATH = join(root, "missing.mjs");
   await assert.rejects(readAgentTraces({ offset: 0 }, root), { status: 503 });
 });
+
+test("run status ignores owner denials but keeps real errors", () => {
+  const span = (id: string, name: string, statusCode: number, attributes = {}) => ({
+    spanId: id.repeat(16),
+    parentSpanId: null,
+    name,
+    durationMs: 10,
+    startTimeNs: "1000000000",
+    statusCode,
+    attributes,
+  });
+  const denied = span("a", "agent.action", 2, {
+    "agent.action.name": "archiveProduct",
+    "agent.action.call_id": "c1",
+    "agent.action.error.code": "TOOL_EXECUTION_DENIED",
+    "error.type": "TOOL_EXECUTION_DENIED",
+  });
+  const rejection = span("b", "agent.approval", 0, {
+    "agent.action.call_id": "c1",
+    "agent.approval.outcome": "denied",
+  });
+  const failure = span("c", "agent.action", 2, {
+    "agent.action.name": "searchProducts",
+    "error.type": "Error",
+  });
+  const run = (...spans: ReturnType<typeof span>[]) =>
+    traceMetadata({ ...raw, spans, spanCount: spans.length });
+
+  const onlyDenied = run(denied, rejection);
+  assert.equal(onlyDenied.status, "ok");
+  assert.equal(onlyDenied.errorSpanCount, 0);
+  assert.equal(onlyDenied.timeline[0].approval, "rejected");
+
+  const mixed = run(denied, rejection, failure);
+  assert.equal(mixed.status, "error");
+  assert.equal(mixed.errorSpanCount, 1);
+
+  assert.equal(run(failure).status, "error");
+  assert.equal(
+    run(span("d", "agent.step", 2, { "error.type": "TOOL_EXECUTION_DENIED" })).status,
+    "error",
+  );
+});

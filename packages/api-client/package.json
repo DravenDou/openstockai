@@ -1,0 +1,21 @@
+{
+  "name": "@openstockai/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./client": "./src/client.ts",
+    "./contract": "./src/contract.ts",
+    "./generated": "./src/generated.ts",
+    "./agent-traces": "./src/agent-traces.ts",
+    "./runtime.json": "./src/runtime.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.6.6"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

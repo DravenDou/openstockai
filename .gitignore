@@ -1,0 +1,43 @@
+node_modules/
+.cache/
+.tools/
+apps/api/api.exe
+.next/
+.next-e2e/
+.next-build/
+.eve/
+.output/
+.vercel/
+out/
+.env*
+!.env.example
+*.tsbuildinfo
+playwright-report/
+test-results/
+.impeccable/
+
+# Local tooling, reports and generated binaries
+.pnpm-store/
+coverage/
+*.log
+apps/api/api
+*.test
+*.prof
+
+# Local editor and operating system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Database exports may contain private data
+*.dump
+*.sql.gz
+
+# Private operational snapshots and workflow state
+.backups/
+
+# Private working notes (never published)
+.private/

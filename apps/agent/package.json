@@ -1,0 +1,25 @@
+{
+  "name": "@openstockai/agent",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "eve dev --host 127.0.0.1 --port 4273 --no-ui --no-default-extensions",
+    "build": "eve build",
+    "eval": "eve eval --url http://127.0.0.1:4273",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/agent.test.ts tests/model-output.test.ts tests/agent-runs.test.ts tests/agent-traces.test.ts"
+  },
+  "dependencies": {
+    "@toon-format/toon": "4.4.0",
+    "ai": "7.0.128",
+    "eve": "0.71.2",
+    "zod": "4.6.6",
+    "@openstockai/api-client": "workspace:*",
+    "@openstockai/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "tsx": "4.23.15",
+    "typescript": "^6.0.3"
+  }
+}

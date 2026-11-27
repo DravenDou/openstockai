@@ -1,0 +1,122 @@
+services:
+  postgres:
+    build: ./docker/postgres
+    environment:
+      POSTGRES_DB: openstockai
+      POSTGRES_USER: openstockai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./scripts/docker-up.sh}
+    ports: ["127.0.0.1:${POSTGRES_PORT:-55432}:5432"]
+    networks: [database]
+    volumes: ["postgres_data:/var/lib/postgresql"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openstockai -d openstockai"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  migrate:
+    build: ./apps/api
+    command: ["--migrate"]
+    environment:
+      DATABASE_URL: postgresql://openstockai@postgres:5432/openstockai?sslmode=disable
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    networks: [database]
+    depends_on:
+      postgres: {condition: service_healthy}
+  provision:
+    build: ./apps/api
+    command: ["--provision"]
+    environment:
+      DATABASE_URL: postgresql://openstockai@postgres:5432/openstockai?sslmode=disable
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      API_DATABASE_PASSWORD: ${API_DATABASE_PASSWORD:?Run ./scripts/docker-up.sh}
+      AUTH_DATABASE_PASSWORD: ${AUTH_DATABASE_PASSWORD:?Run ./scripts/docker-up.sh}
+    networks: [database]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  api:
+    build: ./apps/api
+    environment:
+      DATABASE_URL: postgresql://openstock_api_login@postgres:5432/openstockai?sslmode=disable
+      PGPASSWORD: ${API_DATABASE_PASSWORD}
+      BETTER_AUTH_JWKS_URL: http://web:3017/api/auth/jwks
+      JWT_ISSUER: http://localhost:${WEB_PORT:-3017}
+      JWT_AUDIENCE: openstockai-api
+      AGENT_SERVICE_SECRET: ${AGENT_SERVICE_SECRET:?Run ./scripts/docker-up.sh}
+      API_DB_MAX_CONNS: ${API_DB_MAX_CONNS:-8}
+      API_ADDR: 0.0.0.0:8087
+    ports: ["127.0.0.1:${API_PORT:-8087}:8087"]
+    networks:
+      default: {gw_priority: 1}
+      database: {}
+    depends_on:
+      provision: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "3", "-O", "/dev/null", "http://127.0.0.1:8087/health"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+  web:
+    build: {context: ., target: development}
+    image: ${COMPOSE_PROJECT_NAME:-openstockai}-dev:local
+    environment:
+      DATABASE_URL: postgresql://openstock_auth_login@postgres:5432/openstockai?sslmode=disable
+      PGPASSWORD: ${AUTH_DATABASE_PASSWORD}
+      AUTH_DB_MAX_CONNECTIONS: ${AUTH_DB_MAX_CONNECTIONS:-10}
+      BETTER_AUTH_URL: http://localhost:${WEB_PORT:-3017}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Run ./scripts/docker-up.sh}
+      API_BASE_URL: http://api:8087
+      JWT_AUDIENCE: openstockai-api
+      AGENT_SERVICE_SECRET: ${AGENT_SERVICE_SECRET}
+      EVE_BASE_URL: http://agent:4273
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-V4-Flash-0731}
+      AI_MAX_INPUT_TOKENS: ${AI_MAX_INPUT_TOKENS:-65536}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-2048}
+      AI_MAX_STEPS_PER_TURN: ${AI_MAX_STEPS_PER_TURN:-8}
+      AI_TOOL_SELECTION: ${AI_TOOL_SELECTION:-progressive}
+      AI_TOOL_RESULT_FORMAT: ${AI_TOOL_RESULT_FORMAT:-auto}
+    ports: ["127.0.0.1:${WEB_PORT:-3017}:3017"]
+    networks:
+      # LLM provider egress must use the app network, not the private DB bridge.
+      default: {gw_priority: 1}
+      database: {}
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3017').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 10s
+      start_period: 60s
+      retries: 20
+  agent:
+    build: {context: ., target: development}
+    image: ${COMPOSE_PROJECT_NAME:-openstockai}-dev:local
+    working_dir: /app/apps/agent
+    command: ["pnpm", "exec", "eve", "dev", "--host", "0.0.0.0", "--port", "4273", "--no-ui", "--no-default-extensions"]
+    environment:
+      # The shared configuration requires a URL; the agent receives no DB credentials.
+      DATABASE_URL: postgresql://unused:unused@unavailable/unused
+      BETTER_AUTH_URL: http://web:3017
+      BETTER_AUTH_SECRET: unused-agent-configuration-value-32chars
+      API_BASE_URL: http://api:8087
+      JWT_AUDIENCE: openstockai-api
+      AGENT_SERVICE_SECRET: ${AGENT_SERVICE_SECRET}
+      EVE_BASE_URL: http://127.0.0.1:4273
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-V4-Flash-0731}
+      AI_MAX_INPUT_TOKENS: ${AI_MAX_INPUT_TOKENS:-65536}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-2048}
+      AI_MAX_STEPS_PER_TURN: ${AI_MAX_STEPS_PER_TURN:-8}
+      AI_TOOL_SELECTION: ${AI_TOOL_SELECTION:-progressive}
+      AI_TOOL_RESULT_FORMAT: ${AI_TOOL_RESULT_FORMAT:-auto}
+    volumes: ["eve_data:/app/apps/agent/.eve"]
+    depends_on:
+      web: {condition: service_healthy}
+volumes:
+  postgres_data:
+  eve_data:
+networks:
+  database:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"

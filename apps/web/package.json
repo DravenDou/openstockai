@@ -1,0 +1,48 @@
+{
+  "name": "@openstockai/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 3017",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1 --port 3017",
+    "typecheck": "tsc --noEmit",
+    "test:assistant": "tsx --test tests/assistant-ui.test.ts && node --test tests/chat-render.test.mjs",
+    "test:store": "tsx --test tests/store.test.ts",
+    "test:contract": "tsx --test tests/contract.test.ts"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "ai": "7.0.128",
+    "better-auth": "1.7.7",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "eve": "0.71.2",
+    "lucide-react": "^1.52.0",
+    "next": "16.4.5",
+    "next-themes": "^0.4.6",
+    "pg": "8.23.1",
+    "radix-ui": "^1.7.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "sonner": "^2.0.8",
+    "streamdown": "2.7.0",
+    "tailwind-merge": "^3.7.0",
+    "tw-animate-css": "^1.4.0",
+    "use-stick-to-bottom": "1.1.6",
+    "zod": "4.6.6",
+    "@openstockai/api-client": "workspace:*",
+    "@openstockai/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.6.4",
+    "@types/pg": "8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@next/env": "16.4.5",
+    "tailwindcss": "^4.3.3",
+    "tsx": "4.23.15",
+    "typescript": "^6.0.3"
+  }
+}

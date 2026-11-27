@@ -1,5 +1,5 @@
 import type { Schemas } from "@openstockai/api-client/client";
-import type { Movement, Product } from "./inventory";
+import { actorLabel, type Movement, type Product } from "./inventory";
 
 export function productFromAPI(p: Schemas["Product"]): Product {
   return {
@@ -34,12 +34,7 @@ export function movementFromAPI(
     name: m.name,
     kind: m.type === "sale" ? "Sale" : m.quantity > 0 ? "Stock in" : "Adjustment",
     quantity: m.quantity,
-    actor:
-      m.actor_type === "ai"
-        ? "OpenStock AI"
-        : m.user_id === identity?.user_id
-          ? identity.name
-          : m.user_id,
+    actor: actorLabel(m.actor_type, identity),
     date: "",
     timestamp: Date.parse(m.created_at),
     source: m.reference,

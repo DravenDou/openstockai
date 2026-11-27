@@ -119,6 +119,16 @@ function cents(value: string | number) {
 function decimalCents(value: bigint) {
   return `${value / BigInt(100)}.${(value % BigInt(100)).toString().padStart(2, "0")}`;
 }
+/** Human-readable actor label. Never returns a raw user ID. */
+export function actorLabel(
+  actorType: string | null | undefined,
+  identity?: { name?: string | null } | null,
+): string {
+  if (actorType === "ai") return "OpenStock AI";
+  if (actorType === "system") return "System";
+  return identity?.name?.trim() || "Owner";
+}
+
 export const euro = (value: string | number, decimals = true) => {
   const amount = cents(value),
     whole = decimals ? amount / BigInt(100) : (amount + BigInt(50)) / BigInt(100);

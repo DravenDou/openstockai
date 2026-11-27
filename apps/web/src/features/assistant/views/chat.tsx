@@ -401,8 +401,7 @@ function Conversation({ scope }: { scope: string }) {
                     {m.kind}: {Math.abs(m.quantity)} {m.unitSymbol || "units"}
                   </p>
                   <p className="mt-1.5 text-[10px] text-muted-foreground">
-                    {movementDate(m, settings.timezone)} · Recorded by{" "}
-                    {m.actor === "OpenStock AI" ? "Assistant" : m.actor}
+                    {movementDate(m, settings.timezone)} · Recorded by {m.actor}
                   </p>
                 </div>
               </div>

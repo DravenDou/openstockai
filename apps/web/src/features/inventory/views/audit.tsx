@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useAPI } from "@/shared/api/use-api";
+import { actorLabel } from "@/shared/state/inventory";
 import { useInventory } from "@/shared/state/store";
 import type { Schemas } from "@openstockai/api-client/client";
 import { QueryState } from "../../../shared/components/query-state";
@@ -8,7 +9,7 @@ import { EmptyState, PageHeading, SearchInput } from "../../../shared/components
 import { HistoryNavigation } from "@/shared/components/history-navigation";
 
 export function AuditView() {
-  const { settings } = useInventory();
+  const { settings, identity } = useInventory();
   const [search, setSearch] = useState("");
   const [actor, setActor] = useState("");
   const [cursors, setCursors] = useState<Schemas["HistoryCursor"][]>([]);
@@ -62,13 +63,7 @@ export function AuditView() {
               <summary className="cursor-pointer text-sm">
                 <span className="font-medium">{entry.action}</span>
                 <span className="mt-2 block text-xs text-muted-foreground">
-                  {entry.user_name} ·{" "}
-                  {entry.actor_type === "ai"
-                    ? "Assistant"
-                    : entry.actor_type === "human"
-                      ? "User"
-                      : "System"}{" "}
-                  ·{" "}
+                  {actorLabel(entry.actor_type, identity)} ·{" "}
                   {new Date(entry.created_at).toLocaleString("en-US", {
                     timeZone: settings.timezone,
                   })}

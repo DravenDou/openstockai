@@ -1,5 +1,5 @@
 "use client";
-import { exportCsv, movementTypeLabel } from "@/shared/state/inventory";
+import { actorLabel, exportCsv, movementTypeLabel } from "@/shared/state/inventory";
 import { useInventory } from "@/shared/state/store";
 import { useAPI } from "@/shared/api/use-api";
 import { Plus } from "lucide-react";
@@ -48,7 +48,7 @@ export function MovementsView() {
                 m.type,
                 m.quantity,
                 m.unit_symbol,
-                m.actor_type,
+                actorLabel(m.actor_type, identity),
                 m.reference,
                 m.created_at,
               ]),
@@ -155,13 +155,7 @@ export function MovementsView() {
                         {m.quantity > 0 ? "+" : ""}
                         {m.quantity} {m.unit_symbol}
                       </td>
-                      <td className="hidden md:table-cell">
-                        {m.actor_type === "ai"
-                          ? "OpenStock AI"
-                          : m.user_id === identity?.user_id
-                            ? identity.name
-                            : m.user_id.slice(0, 8)}
-                      </td>
+                      <td className="hidden md:table-cell">{actorLabel(m.actor_type, identity)}</td>
                       <td className="hidden text-muted-foreground md:table-cell">
                         {new Date(m.created_at).toLocaleString("en-US", {
                           timeZone: settings.timezone,

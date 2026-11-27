@@ -1,5 +1,5 @@
 "use client";
-import { euro, stockCost, movementTypeLabel } from "@/shared/state/inventory";
+import { actorLabel, euro, stockCost, movementTypeLabel } from "@/shared/state/inventory";
 import { productFromAPI } from "@/shared/state/product";
 import { inventoryActions, useInventory } from "@/shared/state/store";
 import { useAPI } from "@/shared/api/use-api";
@@ -36,7 +36,7 @@ export function ProductDetailView({ id }: { id: string }) {
   const [page, setPage] = useState(1);
   const key = useRef(crypto.randomUUID());
   const router = useRouter();
-  const { warehouses, settings } = useInventory();
+  const { warehouses, settings, identity } = useInventory();
   const history = useAPI("/v1/movements-page", { product: id, limit: 12, offset: (page - 1) * 12 });
   const balances = useAPI("/v1/inventory", { product: id, limit: 500 });
   if (!result.data)
@@ -141,7 +141,7 @@ export function ProductDetailView({ id }: { id: string }) {
               </p>
               <p className="mt-1 text-muted-foreground">
                 {new Date(m.created_at).toLocaleString("en-US", { timeZone: settings.timezone })} ·{" "}
-                {m.actor_type === "ai" ? "OpenStock AI" : "Human"}
+                {actorLabel(m.actor_type, identity)}
               </p>
             </div>
             <strong className="tabular">

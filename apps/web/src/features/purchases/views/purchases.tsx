@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAPI } from "@/shared/api/use-api";
-import { euro } from "@/shared/state/inventory";
+import { actorLabel, euro } from "@/shared/state/inventory";
 import { savePurchaseDraft, useInventory } from "@/shared/state/store";
 import type { Schemas } from "@openstockai/api-client/client";
 import { HistoryNavigation } from "@/shared/components/history-navigation";
@@ -137,7 +137,7 @@ export function PurchasesView() {
 }
 export function PurchaseDetailView({ id }: { id: string }) {
   const result = useAPI("/v1/purchases/{id}", {}, id);
-  const { settings } = useInventory();
+  const { settings, identity } = useInventory();
   const p = result.data?.purchase;
   return (
     <>
@@ -159,7 +159,7 @@ export function PurchaseDetailView({ id }: { id: string }) {
           />
           <p className="text-sm text-muted-foreground">
             {new Date(p.created_at).toLocaleString("en-US", { timeZone: settings.timezone })} ·{" "}
-            {p.actor_type === "ai" ? "Assistant" : "User"}
+            {actorLabel(p.actor_type, identity)}
           </p>
           <section className="overflow-x-auto rounded-xl border p-5">
             <table className="w-full text-left text-sm">

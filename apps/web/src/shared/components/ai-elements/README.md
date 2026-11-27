@@ -1,8 +1,9 @@
 # Chat blocks
 
 Adaptations of the Message, Conversation and Tool components from
-[Vercel AI Elements](https://elements.ai-sdk.dev/), under the Apache License 2.0 (Copyright 2023 Vercel, Inc.; see the bundled
-[LICENSE](LICENSE)).
+[Vercel AI Elements](https://elements.ai-sdk.dev/), under the Apache License 2.0 (Copyright 2023 Vercel, Inc.). [LICENSE](LICENSE) is
+the upstream notice as published; [LICENSE-2.0.txt](LICENSE-2.0.txt) is the full license text. Each file states that it was
+modified.
 Source: official registry:
 
 - https://elements.ai-sdk.dev/api/registry/message.json

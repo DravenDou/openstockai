@@ -1,6 +1,7 @@
 "use client";
 
-// Adapted from Vercel AI Elements (MIT); see LICENSE and README in this folder.
+// Adapted from Vercel AI Elements (Apache License 2.0, Copyright 2023 Vercel, Inc.) and modified
+// for OpenStock AI; see LICENSE, LICENSE-2.0.txt and README in this folder.
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { ArrowDownIcon } from "lucide-react";

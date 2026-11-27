@@ -91,7 +91,7 @@ beforeEach((t) => {
 test("tools have no SQL or foreign-scope input; identity and retry keys are pinned", () => {
   assert.equal(config.defaultTools, false);
   assert.deepEqual(principal(ctx.session), { userId, sessionId });
-  const input = { name: "Coca-Cola 2L", sku: "CC-2L", costPrice: "10.10", salePrice: "14.99" };
+  const input = { name: "Cola 2L", sku: "CC-2L", costPrice: "10.10", salePrice: "14.99" };
   // Negative test: a removed multi-tenant field must be rejected by the strict schema.
   assert.equal(product.safeParse({ ...input, organization_id: "foreign" }).success, false);
   assert.equal(product.safeParse({ ...input, costPrice: 10.1 }).success, false);
@@ -618,7 +618,7 @@ test("tool calls Go with scoped JWT, stops at approval, never invents success", 
   });
   try {
     const input = product.parse({
-      name: "Coca-Cola 2L",
+      name: "Cola 2L",
       sku: "CC-2L",
       costPrice: "10.10",
       salePrice: "14.99",

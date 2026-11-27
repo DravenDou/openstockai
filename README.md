@@ -215,3 +215,8 @@ tests/            repo-level architecture test
 ## License
 
 [MIT](LICENSE) © 2026 DravenDou
+
+Third-party code kept in the tree under its own license:
+
+- `apps/web/src/shared/components/ai-elements`: adapted from [Vercel AI Elements](https://elements.ai-sdk.dev/), Apache License 2.0 (see the `LICENSE` and `LICENSE-2.0.txt` files in that folder).
+- `apps/web/src/shared/ui`: components generated with [shadcn/ui](https://ui.shadcn.com/), MIT (see the `LICENSE` file in that folder).

@@ -24,6 +24,7 @@ async function lookupName(kind: RefKind, id: string) {
 function useNames(refs: { kind: RefKind; id: string }[]) {
   const store = useInventory();
   const [fetched, setFetched] = useState<Record<string, string>>({});
+  const [failed, setFailed] = useState<Record<string, true>>({});
   const wanted = JSON.stringify(refs);
   const known = (kind: RefKind, id: string) =>
     (kind === "product"
@@ -48,12 +49,16 @@ function useNames(refs: { kind: RefKind; id: string }[]) {
           resolved.set(`${kind}:${id}`, value);
           if (!cancelled) setFetched((current) => ({ ...current, [`${kind}:${id}`]: value }));
         })
-        .catch(() => undefined);
+        .catch(() => {
+          if (!cancelled) setFailed((current) => ({ ...current, [`${kind}:${id}`]: true }));
+        });
     return () => {
       cancelled = true;
     };
   }, [missing]);
-  return (kind: RefKind, id: string) => known(kind, id) ?? "Loading…";
+  // A failed lookup falls back to the raw ID instead of staying on "Loading…" forever.
+  return (kind: RefKind, id: string) =>
+    known(kind, id) ?? (failed[`${kind}:${id}`] ? id : "Loading…");
 }
 
 export function ApprovalCard({

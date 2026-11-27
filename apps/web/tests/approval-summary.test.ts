@@ -37,7 +37,7 @@ test("routine writes are not marked destructive", () => {
 
 test("a purchase lists its lines and an exact total", () => {
   const summary = summarizeApproval("recordPurchase", {
-    reference: "Invoice 42",
+    reference: "Purchase order 42",
     warehouseId: warehouse,
     items: [
       { productId: id, quantity: 3, costPrice: "9.99" },
@@ -46,7 +46,7 @@ test("a purchase lists its lines and an exact total", () => {
   });
   assert.equal(summary.items?.length, 2);
   assert.equal(summary.total, "34.97");
-  assert.deepEqual(summary.rows[0], { label: "Reference", value: "Invoice 42" });
+  assert.deepEqual(summary.rows[0], { label: "Reference", value: "Purchase order 42" });
   assert.equal(summary.rows[1]?.ref, "warehouse");
   assert.equal(purchaseTotal([{ quantity: "0.001", cost: "0.01" }]), "0.00");
 });

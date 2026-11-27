@@ -26,7 +26,7 @@ func (s *Service) CreateLookup(ctx context.Context, t principal.Principal, key, 
 			return nil, apperror.Fail("INVALID_EMAIL", "Invalid email address.", 422)
 		}
 	}
-	return s.Mutate(ctx, t, key, "POST /v1/"+resource, raw, false, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "POST /v1/"+resource, raw, func(q *database.Queries) (Change, error) {
 		switch resource {
 		case "categories":
 			r, e := q.CreateCategory(ctx, strings.TrimSpace(in.Name))

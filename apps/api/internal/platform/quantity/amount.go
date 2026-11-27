@@ -33,7 +33,7 @@ func Parse(text string) (Amount, error) {
 	decimals, _ := strconv.ParseInt(fraction, 10, 64)
 	value := Amount(whole*1000 + decimals)
 	if value > Max {
-		return 0, fmt.Errorf("cantidad fuera de rango")
+		return 0, fmt.Errorf("quantity out of range")
 	}
 	if negative {
 		value = -value
@@ -69,7 +69,7 @@ func (a Amount) NumericValue() (pgtype.Numeric, error) {
 }
 func (a *Amount) ScanNumeric(value pgtype.Numeric) error {
 	if !value.Valid || value.NaN || value.InfinityModifier != 0 {
-		return fmt.Errorf("cantidad no finita")
+		return fmt.Errorf("quantity is not finite")
 	}
 	coefficient := new(big.Int).Set(value.Int)
 	exponent := value.Exp + 3
@@ -84,7 +84,7 @@ func (a *Amount) ScanNumeric(value pgtype.Numeric) error {
 		}
 	}
 	if !coefficient.IsInt64() {
-		return fmt.Errorf("cantidad fuera de rango")
+		return fmt.Errorf("quantity out of range")
 	}
 	*a = Amount(coefficient.Int64())
 	return nil

@@ -42,7 +42,7 @@ export function CatalogView({ path }: { path: string }) {
 }
 function LookupCatalog({ path }: { path: keyof typeof catalogs }) {
   const config = catalogs[path];
-  
+
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const query = useAPI(config.endpoint, { query: search, limit: 21, offset: (page - 1) * 20 });
@@ -268,7 +268,7 @@ function UnitsView() {
     <>
       <PageHeading
         title="Units of measure"
-        description="Default and configurable units for this organization."
+        description="Default and configurable units for this store."
       />
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <section className="min-w-0 rounded-xl border p-5">

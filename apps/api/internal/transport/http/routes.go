@@ -242,10 +242,6 @@ func registerRoutes(r chi.Router, s *inventory.Service) {
 	}, _ []byte) (any, error) {
 		return s.ApproveAction(r.Context(), principal.From(r.Context()), chi.URLParam(r, "id"), in.Approved)
 	}))
-	r.Post("/agent-actions/{id}/execute", func(w http.ResponseWriter, r *http.Request) {
-		value, err := s.ExecuteApproved(r.Context(), principal.From(r.Context()), chi.URLParam(r, "id"))
-		respond(w, value, err)
-	})
 	r.Patch("/agent-actions/{id}", jsonHandler(func(r *http.Request, in struct {
 		Result json.RawMessage `json:"result"`
 		Status string          `json:"status"`

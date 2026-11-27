@@ -1,4 +1,4 @@
--- OpenStock AI baseline schema (single user, single tenant).
+-- OpenStock AI baseline schema (single user).
 -- The auth schema matches Better Auth 1.7.7 (email/password + jwt plugin).
 -- +goose Up
 CREATE SCHEMA IF NOT EXISTS auth;
@@ -145,7 +145,7 @@ CREATE TABLE settings (
   id boolean PRIMARY KEY DEFAULT true CHECK (id),
   settings jsonb NOT NULL
 );
-INSERT INTO settings (id,settings) VALUES (true,'{"store":"My store","email":"","currency":"USD","timezone":"UTC","automatic":true,"confirm":true,"lowStock":true,"voice":false}');
+INSERT INTO settings (id,settings) VALUES (true,'{"store":"My store","email":"","currency":"USD","timezone":"UTC","automatic":false,"lowStock":true,"voice":false}');
 
 -- A correction creates a compensating movement, never edits the ledger.
 -- +goose StatementBegin

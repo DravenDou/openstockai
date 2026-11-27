@@ -25,7 +25,7 @@ func (s *Service) UpdateLookup(ctx context.Context, t principal.Principal, key, 
 		}
 	}
 	in.Name = strings.TrimSpace(in.Name)
-	return s.Mutate(ctx, t, key, "PATCH /v1/"+resource+"/"+id, raw, false, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "PATCH /v1/"+resource+"/"+id, raw, func(q *database.Queries) (Change, error) {
 		old, err := lockLookup(ctx, q, resource, id)
 		if err != nil {
 			return Change{}, err
@@ -49,7 +49,7 @@ func (s *Service) DeleteLookup(ctx context.Context, t principal.Principal, key, 
 	if !validate.ID(id) {
 		return nil, apperror.Fail("INVALID_ID", "Invalid identifier.", 422)
 	}
-	return s.Mutate(ctx, t, key, "DELETE /v1/"+resource+"/"+id, []byte(`{}`), true, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "DELETE /v1/"+resource+"/"+id, []byte(`{}`), func(q *database.Queries) (Change, error) {
 		old, err := lockLookup(ctx, q, resource, id)
 		if err != nil {
 			return Change{}, err
@@ -80,7 +80,7 @@ func (s *Service) RestoreProduct(ctx context.Context, t principal.Principal, key
 	if !validate.ID(id) {
 		return nil, apperror.Fail("INVALID_ID", "Invalid identifier.", 422)
 	}
-	return s.Mutate(ctx, t, key, "POST /v1/products/"+id+"/restore", []byte(`{}`), false, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "POST /v1/products/"+id+"/restore", []byte(`{}`), func(q *database.Queries) (Change, error) {
 		row, err := q.RestoreProduct(ctx, database.ID(id))
 		return Change{Result: row, Before: map[string]string{"status": "archived"}, ID: id}, err
 	})

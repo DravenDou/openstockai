@@ -76,10 +76,11 @@ beforeEach((t) => {
   );
 });
 
-test("tools have no SQL/tenant input; identity and retry keys are pinned", () => {
+test("tools have no SQL or foreign-scope input; identity and retry keys are pinned", () => {
   assert.equal(config.defaultTools, false);
   assert.deepEqual(principal(ctx.session), { userId, sessionId });
   const input = { name: "Coca-Cola 2L", sku: "CC-2L", costPrice: "10.10", salePrice: "14.99" };
+  // Negative test: a removed multi-tenant field must be rejected by the strict schema.
   assert.equal(product.safeParse({ ...input, organization_id: "foreign" }).success, false);
   assert.equal(product.safeParse({ ...input, costPrice: 10.1 }).success, false);
   assert.equal(
@@ -171,6 +172,7 @@ function mockAPI(t: TestContext) {
       const headers = new Headers(options.headers);
       assert.equal(headers.get("Authorization"), "Bearer verified-token");
       assert.equal(headers.get("X-Agent-Secret"), "s".repeat(32));
+      // Negative test: no multi-tenant header is ever sent.
       assert.equal(headers.get("X-Organization-ID"), null);
       if (state.forbidden)
         return reply({ error: { code: "FORBIDDEN", message: "Permission denied." } }, 403);
@@ -471,6 +473,7 @@ test("filters go to Go, lookups paginate beyond their first page and schemas sta
     assert.equal(last.data.nextOffset, null);
   }
   assert.equal(schema(searchProducts).safeParse({ limit: 51 }).success, false);
+  // Negative test: a removed multi-tenant field must be rejected by the strict schema.
   assert.equal(schema(getInventory).safeParse({ organization_id: warehouseId }).success, false);
   assert.equal(schema(getStockMovements).safeParse({ since: "yesterday" }).success, false);
 });
@@ -526,6 +529,7 @@ test("tool calls Go with scoped JWT, stops at approval, never invents success", 
       return;
     }
     assert.equal(req.headers.authorization, "Bearer verified-token");
+    // Negative test: no multi-tenant header is ever sent.
     assert.equal(req.headers["x-organization-id"], undefined);
     if (req.url === "/v1/agent-actions") {
       res.end(

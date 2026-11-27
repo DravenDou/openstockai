@@ -29,12 +29,10 @@ func (s *Service) Purchase(ctx context.Context, t principal.Principal, key strin
 	if !validate.ID(in.WarehouseID) || (in.SupplierID != "" && !validate.ID(in.SupplierID)) || !validate.Name(in.Reference, 200) || len(in.Items) == 0 || len(in.Items) > 100 {
 		return nil, apperror.Fail("INVALID_PURCHASE", "Check the warehouse, reference and purchase lines (up to 100).", 422)
 	}
-	total := quantity.Amount(0)
 	for _, item := range in.Items {
 		if item.Quantity <= 0 || item.Quantity > quantity.Max || !ValidMoney(item.CostPrice) {
 			return nil, apperror.Fail("INVALID_PURCHASE_ITEM", "Invalid purchase quantity or cost.", 422)
 		}
-		total += item.Quantity
 		if item.ProductID == "" {
 			if item.Product == nil || item.Product.InitialStock != 0 {
 				return nil, apperror.Fail("PRODUCT_REQUIRED", "Each line needs an existing product or product details without initial stock.", 422)
@@ -46,7 +44,7 @@ func (s *Service) Purchase(ctx context.Context, t principal.Principal, key strin
 			return nil, apperror.Fail("INVALID_ID", "Invalid product.", 422)
 		}
 	}
-	return s.Mutate(ctx, t, key, "POST /v1/purchases", raw, total > 1000*quantity.Scale, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "POST /v1/purchases", raw, func(q *database.Queries) (Change, error) {
 		id, e := q.CreatePurchase(ctx, database.CreatePurchaseParams{WarehouseID: database.ID(in.WarehouseID), SupplierID: database.ID(in.SupplierID), Reference: in.Reference, UserID: t.UserID, ActorType: t.ActorType})
 		if e != nil {
 			return Change{}, e

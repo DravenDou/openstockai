@@ -91,12 +91,12 @@ test("a failed assistant turn with no text renders its actionable error instead 
       sessionId: "conversation",
       failure: {
         code: "MODEL_CALL_FAILED",
-        message: "An administrator must activate your organization plan.",
+        message: "Your account cannot use the assistant right now.",
       },
     }),
   );
   assert.match(html, /role="alert"/);
-  assert.match(html, /activate your organization plan/);
+  assert.match(html, /cannot use the assistant right now/);
   assert.match(html, /href="\/agent-runs"/);
 });
 

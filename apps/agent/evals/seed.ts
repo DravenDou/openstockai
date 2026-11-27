@@ -23,7 +23,6 @@ export const baseSettings = {
   currency: "USD",
   timezone: "UTC",
   automatic: true,
-  confirm: true,
   lowStock: true,
   voice: false,
 };

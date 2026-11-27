@@ -11,10 +11,10 @@ export const ApiOnlySandbox = defineSandboxProvider({
         return { version: 1 };
       },
       async start() {
-        throw new Error("Este agente solo permite tools de la API; sandbox deshabilitado.");
+        throw new Error("This agent only allows API tools; the sandbox is disabled.");
       },
       async resume() {
-        throw new Error("Este agente solo permite tools de la API; sandbox deshabilitado.");
+        throw new Error("This agent only allows API tools; the sandbox is disabled.");
       },
     };
   },

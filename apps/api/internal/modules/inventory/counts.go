@@ -24,7 +24,7 @@ func (s *Service) CountStock(ctx context.Context, t principal.Principal, key str
 	if !validate.ID(in.ProductID) || !validate.ID(in.WarehouseID) || in.Counted < 0 || in.Counted > quantity.Max || in.Expected < 0 || in.Expected > quantity.Max || !validate.Name(in.Reference, 200) {
 		return nil, apperror.Fail("INVALID_COUNT", "Check the product, warehouse, quantities and count reference.", 422)
 	}
-	return s.Mutate(ctx, t, key, "POST /v1/inventory/counts", raw, in.Counted > 1000*quantity.Scale || in.Expected > 1000*quantity.Scale, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "POST /v1/inventory/counts", raw, func(q *database.Queries) (Change, error) {
 		if _, err := q.LockProduct(ctx, database.ID(in.ProductID)); err != nil {
 			return Change{}, err
 		}

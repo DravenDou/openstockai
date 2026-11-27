@@ -103,7 +103,6 @@ export const settingsPatch = z
       .describe(
         "Auto-approve low-risk writes. Deletes, archives and restores always need approval.",
       ),
-    confirm: z.boolean(),
     lowStock: z.boolean(),
   })
   .partial()

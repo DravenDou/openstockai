@@ -3,7 +3,7 @@ import test from "node:test";
 import otel from "../agent/instrumentation/otel";
 import agentRuns from "../agent/instrumentation/agent-runs";
 
-test("OpenTelemetry never captures tenant content, including public and development sessions", () => {
+test("OpenTelemetry never captures user content, including public and development sessions", () => {
   for (const audience of ["public", "private", "unknown"] as const) {
     for (const environment of ["development", "preview", "production"] as const) {
       assert.deepEqual(

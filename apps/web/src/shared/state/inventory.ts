@@ -38,7 +38,6 @@ export type Settings = {
   currency: "USD" | "EUR" | "GBP" | "BOB";
   timezone: string;
   automatic: boolean;
-  confirm: boolean;
   lowStock: boolean;
   voice: boolean;
 };
@@ -102,8 +101,7 @@ export const initialState: InventoryState = {
     email: "",
     currency: "USD",
     timezone: "UTC",
-    automatic: true,
-    confirm: true,
+    automatic: false,
     lowStock: true,
     voice: false,
   },

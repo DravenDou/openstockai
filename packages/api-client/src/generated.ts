@@ -260,22 +260,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/agent-actions/{id}/execute": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_v1_agent_actions__id__execute"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/agent-actions/{id}": {
         parameters: {
             query?: never;
@@ -885,7 +869,6 @@ export interface components {
             currency: "BOB" | "EUR" | "GBP" | "USD";
             timezone: string;
             automatic: boolean;
-            confirm: boolean;
             lowStock: boolean;
             voice: boolean;
         };
@@ -1091,8 +1074,6 @@ export interface components {
             next: components["schemas"]["HistoryCursor"] | null;
         };
         ExportPage: {
-            /** Format: uuid */
-            organizationId: string;
             items: components["schemas"]["Product"][];
             next: {
                 /** Format: uuid */
@@ -2046,37 +2027,6 @@ export interface operations {
                 "application/json": components["schemas"]["Approval"];
             };
         };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Domain error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    post_v1_agent_actions__id__execute: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
         responses: {
             /** @description Success */
             200: {

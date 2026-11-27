@@ -137,7 +137,6 @@ const settings: Schemas["Settings"] = {
   currency: "USD",
   timezone: "UTC",
   automatic: true,
-  confirm: true,
   lowStock: true,
   voice: false,
 };
@@ -168,7 +167,7 @@ test("every tool file belongs to exactly one place in the selection tables", () 
 
 test("new write schemas are strict and validated", () => {
   const line = { productId: targetId, quantity: 5, costPrice: "9.50" };
-  const valid = { warehouseId, reference: "Invoice 42", items: [line] };
+  const valid = { warehouseId, reference: "Purchase order 42", items: [line] };
   assert.equal(purchase.safeParse(valid).success, true);
   assert.equal(purchase.safeParse({ ...valid, items: [] }).success, false);
   assert.equal(purchase.safeParse({ ...valid, reference: " " }).success, false);
@@ -279,7 +278,7 @@ test("recordPurchase posts the receipt through the approval flow", async (t) => 
   const calls = mockAPI(t, { approval: "pending" });
   const input = purchase.parse({
     warehouseId,
-    reference: "Invoice 42",
+    reference: "Purchase order 42",
     items: [{ productId: targetId, quantity: 5, costPrice: "9.50" }],
   });
   const waiting = await recordPurchase.execute(input, ctx);

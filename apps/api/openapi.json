@@ -3,7 +3,7 @@
   "info": {
     "title": "OpenStock AI Inventory API",
     "version": "1.0.0",
-    "description": "Single-user, single-tenant API. Better Auth EdDSA JWT (sub + sid) verified against JWKS; the agent service adds X-Agent-Secret. Decimal strings; transactional mutations with UUID idempotency; destructive agent actions always need human approval."
+    "description": "Single-user API. Better Auth EdDSA JWT (sub + sid) verified against JWKS; the agent service adds X-Agent-Secret. Decimal strings; transactional mutations with UUID idempotency; destructive agent actions always need human approval."
   },
   "servers": [
     {
@@ -499,9 +499,6 @@
           "automatic": {
             "type": "boolean"
           },
-          "confirm": {
-            "type": "boolean"
-          },
           "lowStock": {
             "type": "boolean"
           },
@@ -515,7 +512,6 @@
           "currency",
           "timezone",
           "automatic",
-          "confirm",
           "lowStock",
           "voice"
         ],
@@ -1308,10 +1304,6 @@
       "ExportPage": {
         "type": "object",
         "properties": {
-          "organizationId": {
-            "type": "string",
-            "format": "uuid"
-          },
           "items": {
             "type": "array",
             "items": {
@@ -1340,7 +1332,6 @@
           }
         },
         "required": [
-          "organizationId",
           "items",
           "next"
         ],
@@ -3090,42 +3081,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/Approval"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/agent-actions/{id}/execute": {
-      "post": {
-        "operationId": "post_v1_agent_actions__id__execute",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "default": {
-            "description": "Domain error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
               }
             }
           }

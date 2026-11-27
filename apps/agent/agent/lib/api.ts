@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ToolContext } from "eve/tools";
 import type { ApprovalContext, ApprovalResponseContext, Approval } from "eve/tools/approval";
 import { request, APIError } from "@openstockai/api-client/client";
+import { actionIdFor } from "@openstockai/api-client/agent-runs";
 import type { paths } from "@openstockai/api-client/generated";
 import { serverEnv } from "@openstockai/server/env";
 import { auditResult } from "./results";
@@ -23,14 +23,7 @@ export function principal(session: Pick<ToolContext["session"], "auth">) {
   });
 }
 export function actionID(ctx: { session: { id: string }; callId: string }) {
-  const bytes = createHash("sha256")
-    .update(`${ctx.session.id}:${ctx.callId}`)
-    .digest()
-    .subarray(0, 16);
-  bytes[6] = (bytes[6] & 15) | 128;
-  bytes[8] = (bytes[8] & 63) | 128;
-  const hex = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  return actionIdFor(ctx.session.id, ctx.callId);
 }
 export async function agentHeaders(ctx: {
   session: Pick<ToolContext["session"], "auth">;

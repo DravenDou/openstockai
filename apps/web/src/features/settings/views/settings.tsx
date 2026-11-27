@@ -23,7 +23,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
   const aiSettings: {
-    key: "automatic" | "confirm" | "lowStock" | "voice";
+    key: "automatic" | "lowStock" | "voice";
     title: string;
     description: string;
   }[] = [
@@ -31,22 +31,17 @@ function SettingsForm({ initial }: { initial: Settings }) {
       key: "automatic",
       title: "Auto-approve low-risk actions",
       description:
-        "The assistant applies low-risk changes without asking. Deletes and archives always need your confirmation.",
-    },
-    {
-      key: "confirm",
-      title: "Confirm incomplete data",
-      description: "Asks before changing quantities or costs.",
+        "Off by default: every change the assistant makes waits for your confirmation. Turn this on to let it apply low-risk changes without asking. Deletes, archives, restores and quantities above 1000 always need your confirmation.",
     },
     {
       key: "lowStock",
       title: "Low stock alerts",
-      description: "Detects products at or below minimum stock.",
+      description: "Shows a restocking alert in the assistant panel.",
     },
     {
       key: "voice",
       title: "Voice replies",
-      description: "Listen to the assistant's replies.",
+      description: "Reads the assistant's replies aloud in this browser.",
     },
   ];
   const assistantPanel = (
@@ -63,15 +58,12 @@ function SettingsForm({ initial }: { initial: Settings }) {
                 {item.title}
               </label>
               <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                {item.key === "confirm"
-                  ? "If data is missing, OpenStock AI always asks before applying changes."
-                  : item.description}
+                {item.description}
               </p>
             </div>
             <Switch
               id={`setting-${item.key}`}
-              checked={item.key === "confirm" ? true : draft[item.key]}
-              disabled={item.key === "confirm"}
+              checked={draft[item.key]}
               onCheckedChange={(value) => update(item.key, value)}
               className="mt-1 shrink-0"
             />
@@ -80,7 +72,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
       </div>
       <p className="flex gap-2 border-t pt-5 text-[11px] leading-relaxed text-muted-foreground">
         <ShieldIcon />
-        AI changes are kept in the history and can be undone.
+        Every AI change is recorded in the audit log and on the Agent runs page.
       </p>
       <p className="text-[10px] leading-relaxed text-muted-foreground">
         Sensitive operations always require approval.
@@ -201,7 +193,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
                   Low stock alerts
                 </label>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Shows products that need restocking.
+                  Shows a restocking alert in the assistant panel.
                 </p>
               </div>
               <Switch

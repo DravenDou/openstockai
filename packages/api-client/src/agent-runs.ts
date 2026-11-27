@@ -15,7 +15,7 @@ export type RunAction = {
   error: string | null;
 };
 
-// Same derivation as the agent's `actionID`: sha256(`${conversationId}:${callId}`) as a UUID.
+// Single derivation of the action ID, shared with the agent: sha256(`${conversationId}:${callId}`) as a UUID.
 export function actionIdFor(conversationId: string, callId: string) {
   const bytes = createHash("sha256").update(`${conversationId}:${callId}`).digest().subarray(0, 16);
   bytes[6] = (bytes[6] & 15) | 128;

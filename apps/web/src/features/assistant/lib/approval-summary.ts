@@ -36,8 +36,8 @@ const settingLabels: Record<string, string> = {
   currency: "Currency",
   timezone: "Time zone",
   automatic: "Auto-approve low-risk actions",
-  confirm: "Confirm before writing",
   lowStock: "Low-stock alerts",
+  voice: "Voice replies",
 };
 const fieldLabels: Record<string, string> = {
   name: "Name",

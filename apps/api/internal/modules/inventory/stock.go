@@ -60,7 +60,7 @@ func (s *Service) Adjust(ctx context.Context, t principal.Principal, key string,
 	if err := a.Validate(); err != nil {
 		return nil, err
 	}
-	return s.Mutate(ctx, t, key, "POST /v1/inventory/adjustments", raw, a.Quantity > 1000*quantity.Scale || a.Quantity < -1000*quantity.Scale, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "POST /v1/inventory/adjustments", raw, func(q *database.Queries) (Change, error) {
 		if _, err := q.LockProduct(ctx, database.ID(a.ProductID)); err != nil {
 			return Change{}, err
 		}
@@ -80,7 +80,7 @@ func (s *Service) Transfer(ctx context.Context, t principal.Principal, key strin
 	if !validate.ID(a.ProductID) || !validate.ID(a.FromWarehouseID) || !validate.ID(a.ToWarehouseID) || a.FromWarehouseID == a.ToWarehouseID || a.Quantity <= 0 || a.Quantity > quantity.Max {
 		return nil, apperror.Fail("INVALID_TRANSFER", "Select two different warehouses and a positive quantity.", 422)
 	}
-	return s.Mutate(ctx, t, key, "POST /v1/inventory/transfers", raw, a.Quantity > 1000*quantity.Scale, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "POST /v1/inventory/transfers", raw, func(q *database.Queries) (Change, error) {
 		if _, err := q.LockProduct(ctx, database.ID(a.ProductID)); err != nil {
 			return Change{}, err
 		}

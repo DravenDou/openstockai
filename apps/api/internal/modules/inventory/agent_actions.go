@@ -12,7 +12,6 @@ import (
 	"github.com/DravenDou/openstockai/apps/api/internal/platform/apperror"
 	"github.com/DravenDou/openstockai/apps/api/internal/platform/database"
 	"github.com/DravenDou/openstockai/apps/api/internal/platform/principal"
-	"github.com/DravenDou/openstockai/apps/api/internal/platform/quantity"
 	"github.com/DravenDou/openstockai/apps/api/internal/platform/validate"
 )
 
@@ -85,14 +84,9 @@ func (s *Service) CreateAction(ctx context.Context, t principal.Principal, in Ac
 	if !validOperation(in.Operation) || !validate.ID(in.ID) || !validate.Name(in.ConversationID, 200) || !json.Valid(in.ToolInput) || len(in.ToolInput) > 65536 {
 		return nil, apperror.Fail("INVALID_ACTION", "Invalid tool call.", 422)
 	}
-	var payload struct {
-		Quantity     quantity.Amount `json:"quantity"`
-		InitialStock quantity.Amount `json:"initialStock"`
-	}
-	_ = json.Unmarshal(in.ToolInput, &payload)
 	approval := "not_required"
 	if !strings.HasPrefix(in.Operation, "GET ") {
-		required, err := approvalRequired(ctx, s.Q, in.Operation, payload.Quantity > 1000*quantity.Scale || payload.Quantity < -1000*quantity.Scale || payload.InitialStock > 1000*quantity.Scale)
+		required, err := approvalRequired(ctx, s.Q, in.Operation, in.ToolInput)
 		if err != nil {
 			return nil, err
 		}
@@ -143,89 +137,6 @@ func (s *Service) ApproveAction(ctx context.Context, t principal.Principal, id s
 		return nil, e
 	}
 	return result, tx.Commit(ctx)
-}
-
-// ExecuteApproved uses the exact persisted input, never an edited browser payload.
-func (s *Service) ExecuteApproved(ctx context.Context, t principal.Principal, id string) (json.RawMessage, error) {
-	if t.ActorType != "human" {
-		return nil, apperror.Fail("FORBIDDEN", "A signed-in human user is required.", 403)
-	}
-	a, e := s.Q.GetAgentAction(ctx, database.GetAgentActionParams{UserID: t.UserID, ID: database.ID(id)})
-	if e != nil {
-		return nil, apperror.DomainError(e)
-	}
-	if a.ApprovalStatus != "approved" {
-		return nil, apperror.Fail("APPROVAL_REQUIRED", "The action requires approval.", 409)
-	}
-	t.ActorType = "ai"
-	t.ActionID = id
-	raw := a.ToolInput
-	switch a.ToolName {
-	case "POST /v1/products":
-		var in ProductInput
-		if e = json.Unmarshal(raw, &in); e == nil {
-			return s.CreateProduct(ctx, t, id, raw, in)
-		}
-	case "POST /v1/inventory/adjustments":
-		var in Adjustment
-		if e = json.Unmarshal(raw, &in); e == nil {
-			return s.Adjust(ctx, t, id, raw, in)
-		}
-	case "POST /v1/inventory/transfers":
-		var in Transfer
-		if e = json.Unmarshal(raw, &in); e == nil {
-			return s.Transfer(ctx, t, id, raw, in)
-		}
-	case "POST /v1/inventory/counts":
-		var in StockCount
-		if e = json.Unmarshal(raw, &in); e == nil {
-			return s.CountStock(ctx, t, id, raw, in)
-		}
-	case "POST /v1/purchases":
-		var in Purchase
-		if e = json.Unmarshal(raw, &in); e == nil {
-			return s.Purchase(ctx, t, id, raw, in)
-		}
-	case "POST /v1/units":
-		var in UnitInput
-		if e = json.Unmarshal(raw, &in); e == nil {
-			return s.SaveUnit(ctx, t, id, raw, in)
-		}
-	case "PATCH /v1/settings":
-		var in Settings
-		if e = json.Unmarshal(raw, &in); e == nil {
-			return s.SaveSettings(ctx, t, id, raw, in)
-		}
-	case "POST /v1/categories", "POST /v1/warehouses", "POST /v1/suppliers":
-		var in LookupInput
-		if e = json.Unmarshal(raw, &in); e == nil {
-			return s.CreateLookup(ctx, t, id, strings.TrimPrefix(a.ToolName, "POST /v1/"), raw, in)
-		}
-	default:
-		method, resource, target, action, ok := splitOperation(a.ToolName)
-		if !ok {
-			break
-		}
-		switch {
-		case method == "PATCH" && resource == "products":
-			var in ProductPatch
-			if e = json.Unmarshal(raw, &in); e == nil {
-				return s.UpdateProduct(ctx, t, id, target, raw, in)
-			}
-		case method == "PATCH" && isLookup(resource):
-			var in LookupInput
-			if e = json.Unmarshal(raw, &in); e == nil {
-				return s.UpdateLookup(ctx, t, id, resource, target, raw, in)
-			}
-		case method == "DELETE" && resource == "products":
-			return s.DeleteProduct(ctx, t, id, target)
-		case method == "DELETE" && isLookup(resource):
-			return s.DeleteLookup(ctx, t, id, resource, target)
-		case method == "POST" && resource == "products" && action == "restore":
-			return s.RestoreProduct(ctx, t, id, target)
-		}
-	}
-	return nil, apperror.Fail("INVALID_ACTION", "This action cannot be executed after approval.", 422)
 }
 
 func (s *Service) CompleteReadAction(ctx context.Context, t principal.Principal, id string, result json.RawMessage, status, message string) error {

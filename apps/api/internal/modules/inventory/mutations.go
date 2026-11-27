@@ -33,7 +33,7 @@ type Change struct {
 }
 
 // Mutate claims the retry key and commits stock, ledger, audit and the response together.
-func (s *Service) Mutate(ctx context.Context, t principal.Principal, key, operation string, raw []byte, highRisk bool, fn func(*database.Queries) (Change, error)) (json.RawMessage, error) {
+func (s *Service) Mutate(ctx context.Context, t principal.Principal, key, operation string, raw []byte, fn func(*database.Queries) (Change, error)) (json.RawMessage, error) {
 	if !validate.ID(key) {
 		return nil, apperror.Fail("IDEMPOTENCY_REQUIRED", "Send an Idempotency-Key header containing a UUID.", 400)
 	}
@@ -73,7 +73,7 @@ func (s *Service) Mutate(ctx context.Context, t principal.Principal, key, operat
 		if action.ApprovalStatus == "rejected" {
 			return nil, apperror.Fail("ACTION_REJECTED", "The action was rejected.", 403)
 		}
-		required, e := approvalRequired(ctx, q, operation, highRisk)
+		required, e := approvalRequired(ctx, q, operation, raw)
 		if e != nil {
 			return nil, e
 		}

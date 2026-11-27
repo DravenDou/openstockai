@@ -9,7 +9,7 @@ test("TOON model projections round-trip IDs, decimal strings, fractions and pagi
     data: {
       items: Array.from({ length: 8 }, (_, i) => ({
         id: `550e8400-e29b-41d4-a716-44665544000${i}`,
-        name: `Arroz, \"extra\"\nlínea ${i}`,
+        name: `Rice, \"extra\"\nline ${i}`,
         sku: `00${i}`,
         cost_price: "1234567890123456.99",
         quantity: 0.125,
@@ -40,7 +40,7 @@ test("errors, approvals, short/irregular pages and JSON mode preserve structured
   t.mock.property(process, "env", { ...process.env, AI_TOOL_RESULT_FORMAT: "json" });
   const value = {
     ok: true,
-    data: { items: Array.from({ length: 20 }, (_, id) => ({ id, name: "Producto" })) },
+    data: { items: Array.from({ length: 20 }, (_, id) => ({ id, name: "Product" })) },
   };
   assert.deepEqual(modelPage(value), { type: "json", value });
 });

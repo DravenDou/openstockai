@@ -18,7 +18,6 @@ type Settings struct {
 	Currency  string `json:"currency"`
 	Timezone  string `json:"timezone"`
 	Automatic bool   `json:"automatic"`
-	Confirm   bool   `json:"confirm"`
 	LowStock  bool   `json:"lowStock"`
 	Voice     bool   `json:"voice"`
 }
@@ -32,7 +31,7 @@ func (s *Service) SaveSettings(ctx context.Context, t principal.Principal, key s
 	if _, e := mail.ParseAddress(in.Email); e != nil {
 		return nil, apperror.Fail("INVALID_EMAIL", "Invalid email address.", 422)
 	}
-	return s.Mutate(ctx, t, key, "PATCH /v1/settings", raw, false, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "PATCH /v1/settings", raw, func(q *database.Queries) (Change, error) {
 		old, _ := q.GetSettings(ctx)
 		e := q.SaveSettings(ctx, jsonBytes(in))
 		return Change{Result: in, Before: json.RawMessage(old), ID: "settings"}, e

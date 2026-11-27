@@ -38,6 +38,16 @@ export function MessageContent({ className, ...props }: HTMLAttributes<HTMLDivEl
   );
 }
 
+// Same-origin links (such as the CSV export the agent returns) open directly; every other
+// link still goes through Streamdown's link-safety confirmation.
+function isSameOrigin(url: string) {
+  try {
+    return new URL(url, window.location.origin).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 // Optional code/math/diagram plugins are unnecessary for inventory replies.
 export const MessageResponse = memo(function MessageResponse({
   className,
@@ -46,6 +56,7 @@ export const MessageResponse = memo(function MessageResponse({
   return (
     <Streamdown
       skipHtml
+      linkSafety={{ enabled: true, onLinkCheck: isSameOrigin }}
       components={{
         img: () => null,
         strong: ({ children }) => <strong className="font-semibold">{children}</strong>,

@@ -162,6 +162,7 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 		if status, _ := call("GET", "identity", "", nil, false, ""); status != 200 {
 			t.Fatalf("identity returned %d", status)
 		}
+		// Negative test: a removed multi-tenant field must be rejected as an unknown field.
 		if status, _ := call("POST", "products", uuid.NewString(), map[string]any{"name": "invalid", "sku": "X", "costPrice": "0", "salePrice": "0", "organization_id": "x"}, false, ""); status != 400 {
 			t.Fatalf("unknown body field accepted: %d", status)
 		}
@@ -321,7 +322,7 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 		if status, _ = call("POST", "agent-actions/"+action+"/approval", "", map[string]bool{"approved": true}, false, ""); status != 200 {
 			t.Fatal("human approval failed")
 		}
-		if status, result = call("POST", "agent-actions/"+action+"/execute", "", nil, false, ""); status != 200 {
+		if status, result = call("POST", "inventory/adjustments", action, payload, true, action); status != 200 {
 			t.Fatalf("execute %d %v", status, result)
 		}
 		if stock() != 2076 {
@@ -336,7 +337,7 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 	t.Run("atomic purchases and retry", func(t *testing.T) {
 		beforeStock, beforeMov := stock(), count("stock_movements")
 		key := uuid.NewString()
-		payload := map[string]any{"warehouseId": warehouse, "reference": "FAC-001", "items": []any{
+		payload := map[string]any{"warehouseId": warehouse, "reference": "PO-001", "items": []any{
 			map[string]any{"productId": product, "quantity": 3, "costPrice": "10.10"},
 			map[string]any{"product": map[string]any{"name": "Water", "sku": "AGUA", "costPrice": "1.01", "salePrice": "2.99"}, "quantity": 2, "costPrice": "1.01"},
 		}}
@@ -354,7 +355,7 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 		}
 		beforeStock, beforeMov = stock(), count("stock_movements")
 		beforeProducts, beforeAudit := count("products"), count("audit_logs")
-		payload["reference"] = "FAC-ROLLBACK"
+		payload["reference"] = "PO-ROLLBACK"
 		payload["items"] = []any{
 			map[string]any{"product": map[string]any{"name": "Must not persist", "sku": "ROLLBACK", "costPrice": "1", "salePrice": "2"}, "quantity": 2, "costPrice": "1"},
 			map[string]any{"productId": missingProduct, "quantity": 1, "costPrice": "1"},
@@ -461,13 +462,14 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 		}
 	}
 	t.Run("approval preference is checked at mutation time", func(t *testing.T) {
+		setAutoApprove(true)
 		action := uuid.NewString()
 		payload := adjust(1, warehouse)
 		status, result := call("POST", "agent-actions", "", map[string]any{"id": action, "conversationId": "stale", "operation": "POST /v1/inventory/adjustments", "toolInput": payload}, true, "")
 		if status != 200 || result["approvalStatus"] != "not_required" {
 			t.Fatalf("register action: %d %v", status, result)
 		}
-		defer setAutoApprove(true)
+		defer setAutoApprove(false)
 		setAutoApprove(false)
 		beforeStock, beforeMov, beforeAudit := stock(), count("stock_movements"), count("audit_logs")
 		status, result = call("POST", "inventory/adjustments", action, payload, true, action)
@@ -494,7 +496,8 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 				t.Fatalf("approval failed: %d %v", status, result)
 			}
 			for i := 0; i < 2; i++ {
-				if status, result = call("POST", "agent-actions/"+action+"/execute", "", nil, false, ""); status != 200 {
+				method, path, _ := strings.Cut(tc.operation, " /v1/")
+				if status, result = call(method, path, action, tc.payload, true, action); status != 200 {
 					t.Fatalf("execute/retry %s: %d %v", tc.operation, status, result)
 				}
 			}
@@ -517,6 +520,31 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 		}
 		if status, _ := call("POST", "inventory/adjustments", action, payload, true, action); status != 403 {
 			t.Fatal("rejected mutation executed")
+		}
+	})
+	t.Run("high-risk quantities need approval even with auto-approve on", func(t *testing.T) {
+		setAutoApprove(true)
+		defer setAutoApprove(true)
+		line := func(quantity int) map[string]any {
+			return map[string]any{"productId": product, "quantity": quantity, "costPrice": "1"}
+		}
+		for _, tc := range []struct {
+			name      string
+			operation string
+			payload   any
+			want      string
+		}{
+			{"purchase summed above 1000", "POST /v1/purchases", map[string]any{"warehouseId": warehouse, "reference": "PO-BIG", "items": []any{line(600), line(600)}}, "pending"},
+			{"small purchase", "POST /v1/purchases", map[string]any{"warehouseId": warehouse, "reference": "PO-SMALL", "items": []any{line(5)}}, "not_required"},
+			{"count above 1000", "POST /v1/inventory/counts", map[string]any{"productId": product, "warehouseId": warehouse, "counted": 1500, "expected": 10}, "pending"},
+			{"negative adjustment above 1000", "POST /v1/inventory/adjustments", adjust(-2000, warehouse), "pending"},
+			{"product with large initial stock", "POST /v1/products", map[string]any{"name": "Bulk", "sku": "BULK", "costPrice": "1", "salePrice": "2", "initialStock": 2000, "warehouseId": warehouse}, "pending"},
+		} {
+			action := uuid.NewString()
+			status, result := call("POST", "agent-actions", "", map[string]any{"id": action, "conversationId": "risk", "operation": tc.operation, "toolInput": tc.payload}, true, "")
+			if status != 200 || result["approvalStatus"] != tc.want {
+				t.Fatalf("%s: want %s, got %d %v", tc.name, tc.want, status, result)
+			}
 		}
 	})
 	t.Run("catalog lifecycle and archived recovery", func(t *testing.T) {
@@ -681,7 +709,7 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 			if status, result = call("POST", "agent-actions/"+action+"/approval", "", map[string]bool{"approved": true}, false, ""); status != 200 {
 				t.Fatalf("approval failed: %d %v", status, result)
 			}
-			if status, result = call("POST", "agent-actions/"+action+"/execute", "", nil, false, ""); status != 200 {
+			if status, result = call("DELETE", tc.key, action, map[string]any{}, true, action); status != 200 {
 				t.Fatalf("execute %s: %d %v", tc.operation, status, result)
 			}
 		}
@@ -693,7 +721,7 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 		if status, _ = call("POST", "agent-actions/"+restore+"/approval", "", map[string]bool{"approved": false}, false, ""); status != 200 {
 			t.Fatal("rejection failed")
 		}
-		if status, _ = call("POST", "agent-actions/"+restore+"/execute", "", nil, false, ""); status != 409 {
+		if status, _ = call("POST", "products/"+victim+"/restore", restore, map[string]any{}, true, restore); status != 403 {
 			t.Fatalf("rejected restore executed: %d", status)
 		}
 		low := uuid.NewString()

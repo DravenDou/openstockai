@@ -1,4 +1,4 @@
--- Analytics read models for the dashboard and the agent. Single tenant, read only.
+-- Analytics read models for the dashboard and the agent. Single user, read only.
 -- Cost basis = on-hand quantity x product cost price (active products only).
 -- Outbound movement = sale, adjustment_out, return_out (transfers only relocate stock).
 

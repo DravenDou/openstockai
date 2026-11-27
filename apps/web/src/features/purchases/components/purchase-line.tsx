@@ -104,12 +104,12 @@ export function PurchaseLine({
             <label className="text-xs sm:col-span-2">
               Category
               <Input
-                list={`invoice-categories-${item.sku}`}
+                list={`purchase-categories-${item.sku}`}
                 value={item.category}
                 onChange={(e) => onChange({ category: e.target.value })}
                 maxLength={120}
               />
-              <datalist id={`invoice-categories-${item.sku}`}>
+              <datalist id={`purchase-categories-${item.sku}`}>
                 {categories.data?.map((c) => (
                   <option value={c.name} key={c.id} />
                 ))}

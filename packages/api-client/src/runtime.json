@@ -475,9 +475,6 @@
         "automatic": {
           "type": "boolean"
         },
-        "confirm": {
-          "type": "boolean"
-        },
         "lowStock": {
           "type": "boolean"
         },
@@ -491,7 +488,6 @@
         "currency",
         "timezone",
         "automatic",
-        "confirm",
         "lowStock",
         "voice"
       ],
@@ -1284,10 +1280,6 @@
     "ExportPage": {
       "type": "object",
       "properties": {
-        "organizationId": {
-          "type": "string",
-          "format": "uuid"
-        },
         "items": {
           "type": "array",
           "items": {
@@ -1316,7 +1308,6 @@
         }
       },
       "required": [
-        "organizationId",
         "items",
         "next"
       ],
@@ -1856,7 +1847,6 @@
       "$ref": "#/$defs/Identity"
     },
     "POST /v1/agent-actions/{id}/approval": {},
-    "POST /v1/agent-actions/{id}/execute": {},
     "PATCH /v1/agent-actions/{id}": {
       "$ref": "#/$defs/OK"
     },

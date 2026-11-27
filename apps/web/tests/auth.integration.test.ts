@@ -79,6 +79,7 @@ test(
       const payload = JSON.parse(Buffer.from(String(token.value.token).split(".")[1], "base64url").toString());
       assert.equal(payload.sub, owner.value.user.id);
       assert.match(payload.sid, /^[0-9a-f-]{36}$/);
+      // Single-user app: the token must not carry any multi-tenant claim.
       assert.equal(payload.organizationId, undefined);
       assert.equal((await request("sign-out", {}, login.cookie)).response.status, 200);
       assert.equal((await request("get-session", undefined, login.cookie)).value, null);

@@ -68,7 +68,7 @@ test("a durable turn failure stays visible when Eve returns ready without error,
     data: {
       turnId: "turn_0",
       code: "MODEL_CALL_FAILED",
-      message: "An administrator must activate your organization plan.",
+      message: "Your account cannot use the assistant right now.",
     },
     meta: { id: "failure", at: new Date().toISOString() },
   } as MessageStreamEvent;
@@ -82,7 +82,7 @@ test("a durable turn failure stays visible when Eve returns ready without error,
   assert.equal(store.snapshot.status, "ready");
   assert.equal(
     turnFailures(store.snapshot.events).get("turn_0")?.message,
-    "An administrator must activate your organization plan.",
+    "Your account cannot use the assistant right now.",
   );
   assert.equal(turnFailures(events).get("turn_0")?.code, "MODEL_CALL_FAILED");
   assert.equal(turnFailures([]).size, 0);

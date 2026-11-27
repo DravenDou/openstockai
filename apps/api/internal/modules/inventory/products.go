@@ -51,7 +51,7 @@ func (s *Service) CreateProduct(ctx context.Context, t principal.Principal, key 
 	if p.Icon == "" {
 		p.Icon = "package"
 	}
-	return s.Mutate(ctx, t, key, "POST /v1/products", raw, p.InitialStock > 1000*quantity.Scale, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "POST /v1/products", raw, func(q *database.Queries) (Change, error) {
 		if err := s.resolveProduct(ctx, q, t, &p, ""); err != nil {
 			return Change{}, err
 		}
@@ -83,7 +83,7 @@ func (s *Service) UpdateProduct(ctx context.Context, t principal.Principal, key,
 	if !validate.ID(id) {
 		return nil, apperror.Fail("INVALID_ID", "Invalid ID.", 400)
 	}
-	return s.Mutate(ctx, t, key, "PATCH /v1/products/"+id, raw, false, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "PATCH /v1/products/"+id, raw, func(q *database.Queries) (Change, error) {
 		old, err := q.LockProduct(ctx, database.ID(id))
 		if err != nil {
 			return Change{}, err
@@ -140,7 +140,7 @@ func (s *Service) UpdateProduct(ctx context.Context, t principal.Principal, key,
 	})
 }
 func (s *Service) DeleteProduct(ctx context.Context, t principal.Principal, key, id string) (json.RawMessage, error) {
-	return s.Mutate(ctx, t, key, "DELETE /v1/products/"+id, []byte(`{}`), true, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "DELETE /v1/products/"+id, []byte(`{}`), func(q *database.Queries) (Change, error) {
 		old, e := q.LockProduct(ctx, database.ID(id))
 		if e != nil {
 			return Change{}, e

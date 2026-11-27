@@ -338,7 +338,7 @@ export function PageFooter() {
     <footer className="mt-auto flex flex-wrap justify-between gap-2 pt-12 pb-5 text-[11px] text-muted-foreground">
       <span>Inventory · {settings.store}</span>
       <span className="flex items-center gap-1.5">
-        <Check size={12} /> Saved to your organization
+        <Check size={12} /> Saved
       </span>
     </footer>
   );

@@ -30,7 +30,7 @@ func (s *Service) SaveUnit(ctx context.Context, t principal.Principal, key strin
 	if !unitCode.MatchString(in.Code) || !validate.Name(in.Name, 80) || !validate.Name(in.Symbol, 16) || in.Decimals < 0 || in.Decimals > 3 {
 		return nil, apperror.Fail("INVALID_UNIT", "Check the code, name, symbol and decimals (0 to 3).", 422)
 	}
-	return s.Mutate(ctx, t, key, "POST /v1/units", raw, false, func(q *database.Queries) (Change, error) {
+	return s.Mutate(ctx, t, key, "POST /v1/units", raw, func(q *database.Queries) (Change, error) {
 		old, err := q.LockUnit(ctx, in.Code)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return Change{}, err

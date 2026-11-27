@@ -48,7 +48,11 @@ export function MovementDialog({
     undefined,
     open && !!selected,
   );
-  const available = balances.data?.find((i) => i.warehouse_id === warehouse)?.quantity || 0;
+  // Undefined until the balance for this product and warehouse has loaded.
+  const balance = balances.data
+    ? (balances.data.find((i) => i.warehouse_id === warehouse)?.quantity ?? 0)
+    : undefined;
+  const available = balance ?? 0;
   const step = 10 ** -(product.data?.unit_decimals || 0);
   const amount =
     kind === "Sale" || kind === "Supplier return" ? -Math.abs(Number(quantity)) : Number(quantity);
@@ -205,7 +209,7 @@ export function MovementDialog({
               onChange={(e) => setQuantity(e.target.value)}
             />
           </label>
-          {kind !== "Transferencia" && (
+          {kind !== "Transfer" && (
             <label className="block text-xs">
               Reference
               <Input
@@ -224,7 +228,7 @@ export function MovementDialog({
           <p className="rounded-lg bg-muted p-4 text-sm">
             Available:{" "}
             <strong>
-              {available} {product.data?.unit_symbol}
+              {balance === undefined ? "…" : `${balance} ${product.data?.unit_symbol ?? ""}`}
             </strong>
           </p>
           {kind === "Stock count" && (

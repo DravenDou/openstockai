@@ -195,3 +195,97 @@ test("llmModel turns the anthropic preset mismatch into AI_NOT_CONFIGURED before
       error.code === "AI_NOT_CONFIGURED" && /DeepInfra/.test(error.message),
   );
 });
+
+test("provider errors are logged sanitized without secrets or request bodies", async () => {
+  const { APICallError } = await import("ai");
+  const { aiError } = await import("../src/ai/errors");
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => void lines.push(args.join(" "));
+  try {
+    const error = new APICallError({
+      message: "raw",
+      url: "https://api.anthropic.com/v1/messages?key=secret",
+      requestBodyValues: { prompt: "SECRET-PROMPT" },
+      statusCode: 400,
+      responseHeaders: { "x-api-key": "sk-secret" },
+      responseBody: JSON.stringify({
+        type: "error",
+        error: { type: "invalid_request_error", message: "x".repeat(900) },
+      }),
+    });
+    assert.equal(aiError(error).code, "AI_PROVIDER_MODEL");
+  } finally {
+    console.error = original;
+  }
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /api\.anthropic\.com/);
+  assert.match(lines[0], /invalid_request_error/);
+  assert.match(lines[0], /400/);
+  assert.doesNotMatch(lines[0], /secret|SECRET|sk-/);
+  assert.ok(lines[0].length < 700);
+});
+
+test("anthropic asks the API to drop mismatched thinking blocks; other providers are untouched", async () => {
+  const { anthropicThinkingBindingMiddleware } = await import("../src/ai/model");
+  const mw = anthropicThinkingBindingMiddleware();
+  const base = { prompt: [], providerOptions: { anthropic: { effort: "low" }, other: { a: 1 } } };
+  const out = await mw.transformParams!({ type: "stream", params: base, model: {} as never });
+  assert.deepEqual(out.providerOptions, {
+    anthropic: {
+      effort: "low",
+      thinking: { type: "adaptive", blockBinding: { prefixMismatchBehavior: "drop_block" } },
+    },
+    other: { a: 1 },
+  });
+  const explicit = await mw.transformParams!({
+    type: "stream",
+    params: { prompt: [], providerOptions: { anthropic: { thinking: { type: "disabled" } } } },
+    model: {} as never,
+  });
+  assert.equal(
+    (explicit.providerOptions as { anthropic: { thinking: { type: string } } }).anthropic.thinking
+      .type,
+    "disabled",
+  );
+  // Non-anthropic models are not wrapped, so no anthropic options are ever injected.
+  const ollama = createLanguageModel(llmConfig({ LLM_PROVIDER: "ollama", LLM_MODEL: "q" }));
+  assert.equal(ollama.provider, "ollama.chat");
+});
+
+test("thinking binding applies only to models with preserved thinking", async () => {
+  const { preservedThinkingModel } = await import("../src/ai/model");
+  for (const m of [
+    "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
+    "claude-fable-5-1",
+    "claude-fable-5-2",
+    "claude-mythos-5-1",
+    "claude-mythos-5-2",
+  ])
+    assert.ok(preservedThinkingModel.test(m), m);
+  for (const m of [
+    "claude-haiku-4-5",
+    "claude-sonnet-4-6",
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-fable-5",
+  ])
+    assert.ok(!preservedThinkingModel.test(m), m);
+  const wrapped = (model: string) =>
+    createLanguageModel(
+      llmConfig({ LLM_PROVIDER: "anthropic", LLM_API_KEY: "k", LLM_MODEL: model }),
+    );
+  // Wrapped models expose the wrapper; unwrapped ones are the bare Anthropic model.
+  assert.notEqual(wrapped("claude-haiku-5-5").constructor, wrapped("claude-haiku-4-5").constructor);
+  assert.equal(wrapped("claude-sonnet-5-5").modelId, "claude-sonnet-5-5");
+  assert.equal(wrapped("claude-opus-5").modelId, "claude-opus-5");
+  for (const provider of ["ollama"])
+    assert.equal(
+      createLanguageModel(llmConfig({ LLM_PROVIDER: provider, LLM_MODEL: "q" })).provider,
+      "ollama.chat",
+    );
+  const oa = createLanguageModel(llmConfig({ LLM_API_KEY: "k", LLM_MODEL: "gpt-x" }));
+  assert.match(oa.provider, /chat/);
+});

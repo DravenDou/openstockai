@@ -137,9 +137,48 @@ export function limitsMiddleware(ctx: ModelContext = {}): LanguageModelMiddlewar
   };
 }
 
+// Claude signs each thinking block against the exact request prefix, including the
+// `tools` list. Progressive tool selection changes `tools` between steps of one turn,
+// so replayed blocks would be rejected with a 400 ("tools list differs"). Ask the API
+// to drop mismatched blocks instead of failing. The API requires `thinking.type` next
+// to `block_binding`; "adaptive" is what current Claude models do by default.
+export function anthropicThinkingBindingMiddleware(): LanguageModelMiddleware {
+  return {
+    specificationVersion: "v4",
+    transformParams: async ({ params }) => {
+      const anthropic = (params.providerOptions?.anthropic ?? {}) as Record<string, unknown>;
+      const thinking = (anthropic.thinking ?? {}) as Record<string, unknown>;
+      return {
+        ...params,
+        providerOptions: {
+          ...params.providerOptions,
+          anthropic: {
+            ...anthropic,
+            thinking: {
+              type: "adaptive",
+              blockBinding: { prefixMismatchBehavior: "drop_block" },
+              ...thinking,
+            },
+          },
+        },
+      };
+    },
+  };
+}
+
+// Only these models preserve thinking (blocks bound to the conversation and tool list).
+// Older models (4.x, claude-opus-5, claude-sonnet-5, claude-fable-5) neither bind blocks nor
+// all accept adaptive thinking, so they must keep receiving exactly the unmodified request.
+export const preservedThinkingModel =
+  /^claude-(haiku-5-5|sonnet-5-5|opus-5-5|fable-5-[12]|mythos-5-[12])(-|$)/;
+
 export function createLanguageModel(config: LlmConfig) {
-  if (config.provider === "anthropic")
-    return createAnthropic({ apiKey: config.apiKey, baseURL: config.baseURL })(config.model);
+  if (config.provider === "anthropic") {
+    const model = createAnthropic({ apiKey: config.apiKey, baseURL: config.baseURL })(config.model);
+    return preservedThinkingModel.test(config.model)
+      ? wrapLanguageModel({ model, middleware: anthropicThinkingBindingMiddleware() })
+      : model;
+  }
   // OpenAI-compatible and Ollama both speak Chat Completions, which every gateway
   // (DeepInfra, OpenRouter, OpenAI, vLLM, LM Studio, Ollama) supports.
   return createOpenAI({

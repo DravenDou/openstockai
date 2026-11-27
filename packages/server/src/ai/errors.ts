@@ -1,6 +1,29 @@
 import { APICallError, InvalidResponseDataError, JSONParseError, RetryError } from "ai";
 import { APIError } from "@openstockai/api-client/client";
 
+// Operator diagnostics: status, provider error type/message and URL host only.
+// Never headers, keys or request bodies.
+export function providerErrorDetails(error: APICallError) {
+  let type: string | undefined;
+  let message: string | undefined;
+  try {
+    const body = JSON.parse(error.responseBody ?? "");
+    const inner = body?.error ?? body;
+    if (typeof inner?.type === "string") type = inner.type.slice(0, 100);
+    const text = typeof inner?.message === "string" ? inner.message : undefined;
+    if (text) message = text.slice(0, 500);
+  } catch {
+    // Non-JSON body: leave type/message out rather than echoing raw text.
+  }
+  let host: string | undefined;
+  try {
+    host = error.url ? new URL(error.url).host : undefined;
+  } catch {
+    host = undefined;
+  }
+  return { statusCode: error.statusCode, type, message, host };
+}
+
 // Provider bodies can contain prompts and credentials; only publish our own messages.
 export function aiError(error: unknown, signal?: AbortSignal): APIError {
   if (error instanceof APIError) return error;
@@ -23,6 +46,7 @@ export function aiError(error: unknown, signal?: AbortSignal): APIError {
       502,
     );
   if (APICallError.isInstance(error)) {
+    console.error("ai_provider_error", JSON.stringify(providerErrorDetails(error)));
     if (error.statusCode !== undefined && error.statusCode >= 200 && error.statusCode < 300)
       return new APIError(
         "AI_INVALID_RESPONSE",

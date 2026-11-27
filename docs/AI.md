@@ -104,6 +104,7 @@ Sending 39 schemas with every model call is wasteful, and each extra step repeat
 - **Enabling:** call `selectTools({ groups: [...] })`, or pass `nextAction` to `searchProducts` to enable a group during a search. Groups can be combined for compound tasks.
 - **Scope:** the enabled set lives in Eve state keyed by user, session, conversation and turn. It resets on every new turn and cannot leak between users.
 - **Filtering:** `limitsMiddleware` removes the tools that are not enabled from the model request.
+- **Anthropic thinking:** Claude signs thinking blocks against the `tools` list, so changing it mid-turn made the next call fail with a 400. The native `anthropic` provider now sends `thinking: { type: "adaptive", blockBinding: { prefixMismatchBehavior: "drop_block" } }` (beta `thinking-binding-controls-2026-08-01`), and provider errors are logged as `ai_provider_error` (status, type, message, host only). This applies only to models with preserved thinking (claude-haiku-5-5, sonnet-5-5, opus-5-5, fable-5-1/5-2, mythos-5-1/5-2); other Anthropic models, `openai-compatible` and `ollama` are sent the request unchanged.
 
 Selection is an optimization, not security. A model that guesses a tool name outside its enabled set still hits Go, which authorizes every call and parks every write that needs approval. A fixed list of groups also avoids a separate classifier that could hide a tool the model needs. Set `AI_TOOL_SELECTION=all` to expose every tool (useful to compare behavior).
 

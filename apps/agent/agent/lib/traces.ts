@@ -13,7 +13,9 @@ import {
 import { HTTPError } from "@openstockai/server/http";
 
 const execute = promisify(execFile);
-const cli = resolve("node_modules/eve/bin/eve.js");
+// The production image ships the CLI outside the app (EVE_CLI_PATH); in dev it is in node_modules.
+const cliPath = () => process.env.EVE_CLI_PATH || resolve("node_modules/eve/bin/eve.js");
+const NO_TRACES = /No local traces found/;
 const cliSpanSchema = z.object({
   spanId: z.string(),
   parentSpanId: z.string().nullable(),
@@ -202,7 +204,7 @@ export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) =>
 }
 
 async function runCli(args: string[], appRoot: string) {
-  const { stdout } = await execute(process.execPath, [cli, ...args], {
+  const { stdout } = await execute(process.execPath, [cliPath(), ...args], {
     cwd: appRoot,
     timeout: 15_000,
     maxBuffer: 8 * 1024 * 1024,
@@ -211,6 +213,8 @@ async function runCli(args: string[], appRoot: string) {
   });
   return stdout;
 }
+
+const emptyPage = () => traceListSchema.parse({ items: [], total: 0, nextOffset: null });
 
 export async function readAgentTraces(
   query: z.infer<typeof traceQuerySchema>,
@@ -224,6 +228,8 @@ export async function readAgentTraces(
   } catch (error) {
     // A pruned ID is a normal miss; failures never expose CLI output or file paths.
     const stderr = (error as { stderr?: string }).stderr || "";
+    // Nothing has run yet: an empty page, not a failure.
+    if (!traceId && NO_TRACES.test(stderr)) return emptyPage();
     if (traceId && /No local trace matches|No local traces found/.test(stderr))
       throw new HTTPError(
         404,
@@ -236,6 +242,7 @@ export async function readAgentTraces(
       "Could not read the local traces. Try again in a few seconds.",
     );
   }
+  if (!traceId && NO_TRACES.test(stdout)) return emptyPage();
   const data: unknown = JSON.parse(stdout);
   if (traceId) {
     const traces = z.array(cliTraceSchema).parse(data);

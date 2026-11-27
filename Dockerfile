@@ -42,12 +42,31 @@ COPY --from=web-build --chown=node:node /app/apps/web/.next/static ./apps/web/.n
 EXPOSE 3017
 CMD ["node", "apps/web/server.js"]
 
+# The Eve CLI (`eve traces`) is the supported reader of the local trace store. It needs only
+# `eve`, `ai`, `zod` and their small dependency closure, so the bundler binaries that `eve`
+# pulls in for builds are dropped.
+FROM agent-build AS agent-cli
+RUN pnpm --filter @openstockai/agent deploy --prod --legacy /tmp/eve-cli \
+    && cd /tmp/eve-cli/node_modules/.pnpm \
+    && rm -rf rolldown@* @rolldown+* @oxc-project+*
+
 # Eve's build output bundles its dependencies; .eve is the volume mount for agent state.
+# EVE_DEV_WORKER_APP_ROOT switches on Eve's local trace spool (.eve/traces) outside `eve dev`;
+# `eve traces` finds the store through the minimal project marker created below.
 FROM bootstrap AS agent-production
-ENV NODE_ENV=production HOST=0.0.0.0 PORT=4273 EVE_TRACES_CONTENT=off
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=4273 EVE_TRACES_CONTENT=off \
+    EVE_DEV_WORKER_APP_ROOT=/app/apps/agent EVE_CLI_PATH=/opt/eve-cli/node_modules/eve/bin/eve.js
+USER root
+RUN mkdir -p /opt/eve-cli && chown node:node /opt/eve-cli
+USER node
 WORKDIR /app/apps/agent
-RUN mkdir -p .eve
+RUN mkdir -p .eve agent \
+    && echo '{"private":true,"dependencies":{"eve":"*"}}' > package.json \
+    && echo 'Project marker for the Eve trace CLI.' > agent/instructions.md
+COPY --from=agent-cli --chown=node:node /tmp/eve-cli/node_modules /opt/eve-cli/node_modules
 COPY --from=agent-build --chown=node:node /app/apps/agent/.output ./.output
+# Fail the build if the trace CLI cannot run from this layout.
+RUN EVE_TELEMETRY_DISABLED=1 node "$EVE_CLI_PATH" traces list --json | grep -q '^\[\]$'
 EXPOSE 4273
 CMD ["node", ".output/server/index.mjs"]
 

@@ -186,3 +186,38 @@ test("the public Eve CLI reads real synthetic segments with pagination and sanit
   assert(!JSON.stringify([first, second, detail]).includes(secret));
   await assert.rejects(readAgentTraces({ offset: 0, traceId }, root), { status: 404 });
 });
+
+test("no traces yet is an empty page, and an unknown trace is still a 404", async (t) => {
+  const directoryRoot = resolve(".cache");
+  await mkdir(directoryRoot, { recursive: true });
+  const root = await mkdtemp(join(directoryRoot, "openstockai-empty-traces-"));
+  t.after(async () => {
+    assert(root.startsWith(join(directoryRoot, "openstockai-empty-traces-")));
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  });
+  await mkdir(join(root, "agent"));
+  await writeFile(join(root, "agent/instructions.md"), "Synthetic empty trace test.");
+  await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { eve: "0.71.2" } }));
+  const empty = { items: [], total: 0, nextOffset: null, pricesConfigured: false };
+  // The real CLI with no .eve/traces directory at all.
+  assert.deepEqual(await readAgentTraces({ offset: 0 }, root), empty);
+  await assert.rejects(readAgentTraces({ offset: 0, traceId }, root), { status: 404 });
+
+  // A CLI that reports "No local traces found" instead of an empty JSON array.
+  const stub = join(root, "stub-cli.mjs");
+  await writeFile(
+    stub,
+    'console.error("No local traces found under .eve/traces/v1."); process.exit(1);',
+  );
+  const saved = process.env.EVE_CLI_PATH;
+  process.env.EVE_CLI_PATH = stub;
+  t.after(() => {
+    if (saved === undefined) delete process.env.EVE_CLI_PATH;
+    else process.env.EVE_CLI_PATH = saved;
+  });
+  assert.deepEqual(await readAgentTraces({ offset: 0 }, root), empty);
+  await assert.rejects(readAgentTraces({ offset: 0, traceId }, root), { status: 404 });
+  // An unreadable CLI is still an unavailable service, not an empty list.
+  process.env.EVE_CLI_PATH = join(root, "missing.mjs");
+  await assert.rejects(readAgentTraces({ offset: 0 }, root), { status: 503 });
+});

@@ -12,7 +12,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
     const headers = await goHeaders(request.headers, true);
     const problem = llmConfigProblem();
     if (problem)
-      throw new HTTPError(503, "AI_NOT_CONFIGURED", `${problem} Update .env and restart the services.`);
+      throw new HTTPError(503, "AI_NOT_CONFIGURED", `${problem} Update .env and run docker compose up -d.`);
     const { path } = await context.params;
     const create = path.length === 1 && path[0] === "session" && request.method === "POST";
     if (!create) {

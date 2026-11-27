@@ -1,0 +1,36 @@
+# Hot-reload development stack (development image targets, source bind-mounted):
+#   docker compose -f compose.yaml -f compose.dev.yaml up --build
+# Edits on the host are picked up by `next dev` and `eve dev`. Dependencies live in the
+# image: rebuild with --build after changing package.json or the lockfile. Secrets, ports and
+# healthchecks come from compose.yaml.
+x-dev-build: &dev-build
+  build: {context: ., target: development}
+  image: ${COMPOSE_PROJECT_NAME:-openstockai}-dev:local
+
+x-dev-source: &dev-source
+  # The workspace is mounted over the image; the volumes below keep the container's own
+  # node_modules and build caches instead of the host's.
+  - .:/app
+  - /app/node_modules
+  - /app/apps/web/node_modules
+  - /app/apps/agent/node_modules
+  - /app/packages/api-client/node_modules
+  - /app/packages/server/node_modules
+  - /app/apps/web/.next
+
+services:
+  web:
+    <<: *dev-build
+    command: ["pnpm", "--filter", "@openstockai/web", "exec", "next", "dev", "--hostname", "0.0.0.0", "--port", "3017"]
+    environment:
+      NODE_ENV: development
+    volumes: *dev-source
+    healthcheck:
+      start_period: 120s
+  agent:
+    <<: *dev-build
+    working_dir: /app/apps/agent
+    command: ["pnpm", "exec", "eve", "dev", "--host", "0.0.0.0", "--port", "4273", "--no-ui", "--no-default-extensions"]
+    environment:
+      NODE_ENV: development
+    volumes: *dev-source

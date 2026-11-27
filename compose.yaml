@@ -1,53 +1,134 @@
+# OpenStock AI. Quick start:  cp .env.example .env  (set the LLM_* values)  ->  docker compose up -d
+# Then open http://localhost:3000. Other modes (see the README):
+#   --profile ollama   local LLM served by Ollama      --profile demo   fictional hardware-store data
+#   -f compose.yaml -f compose.dev.yaml   hot reload   run --rm reset-owner-password   owner reset
+# No secret lives in this file or in any image: the one-shot `init` service generates the
+# internal secrets once into the `secrets` volume and docker/entrypoint.sh loads them at start.
+# Startup order: init -> postgres (healthy) -> migrate -> provision -> api (healthy) -> web, agent.
+
+x-restart: &restart
+  restart: unless-stopped
+
+# Postgres, init and seed-demo share one small image (Postgres client tools included).
+x-postgres-image: &postgres-image
+  image: ${COMPOSE_PROJECT_NAME:-openstockai}-postgres:local
+  build: ./docker/postgres
+
+x-api-image: &api-image
+  image: ${COMPOSE_PROJECT_NAME:-openstockai}-api:local
+  build: ./apps/api
+
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+x-secrets-env: &secrets-env
+  # Optional overrides. When empty, the generated value from the secrets volume is used.
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+  AGENT_SERVICE_SECRET: ${AGENT_SERVICE_SECRET:-}
+
+x-public-url: &public-url ${BETTER_AUTH_URL:-http://localhost:${WEB_PORT:-3000}}
+
+x-llm-env: &llm-env
+  LLM_PROVIDER: ${LLM_PROVIDER:-openai-compatible}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_MODEL: ${LLM_MODEL:-}
+  LLM_PRICE_INPUT_PER_MTOK: ${LLM_PRICE_INPUT_PER_MTOK:-}
+  LLM_PRICE_OUTPUT_PER_MTOK: ${LLM_PRICE_OUTPUT_PER_MTOK:-}
+  AI_MAX_INPUT_TOKENS: ${AI_MAX_INPUT_TOKENS:-65536}
+  AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-2048}
+  AI_MAX_STEPS_PER_TURN: ${AI_MAX_STEPS_PER_TURN:-8}
+  AI_TOOL_SELECTION: ${AI_TOOL_SELECTION:-progressive}
+  AI_TOOL_RESULT_FORMAT: ${AI_TOOL_RESULT_FORMAT:-auto}
+
+x-secrets-volumes: &secrets-volumes
+  - secrets:/run/openstock-secrets:ro
+  - ./docker:/openstock:ro
+
 services:
+  init:
+    <<: *postgres-image
+    entrypoint: ["/bin/sh", "/openstock/init.sh"]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - secrets:/secrets
+      - ./docker:/openstock:ro
+
   postgres:
-    build: ./docker/postgres
+    <<: [*postgres-image, *restart]
+    entrypoint: ["/bin/sh", "/openstock/entrypoint.sh", "docker-entrypoint.sh"]
+    command: ["postgres"]
     environment:
       POSTGRES_DB: openstockai
       POSTGRES_USER: openstockai
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./scripts/docker-up.sh}
+      # Set before the first start only; Postgres keeps the password it was initialised with.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     ports: ["127.0.0.1:${POSTGRES_PORT:-55432}:5432"]
     networks: [database]
-    volumes: ["postgres_data:/var/lib/postgresql"]
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - secrets:/run/openstock-secrets:ro
+      - ./docker:/openstock:ro
+    depends_on:
+      init: {condition: service_completed_successfully}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openstockai -d openstockai"]
+      # TCP on purpose: during first-time initialisation Postgres only listens on its socket.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U openstockai -d openstockai"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
+
   migrate:
-    build: ./apps/api
+    <<: *api-image
+    entrypoint: ["/bin/sh", "/openstock/entrypoint.sh", "/api"]
     command: ["--migrate"]
     environment:
       DATABASE_URL: postgresql://openstockai@postgres:5432/openstockai?sslmode=disable
-      PGPASSWORD: ${POSTGRES_PASSWORD}
+      DB_PASSWORD_VAR: POSTGRES_PASSWORD
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     networks: [database]
+    volumes: *secrets-volumes
     depends_on:
       postgres: {condition: service_healthy}
+
   provision:
-    build: ./apps/api
+    <<: *api-image
+    entrypoint: ["/bin/sh", "/openstock/entrypoint.sh", "/api"]
     command: ["--provision"]
     environment:
       DATABASE_URL: postgresql://openstockai@postgres:5432/openstockai?sslmode=disable
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-      API_DATABASE_PASSWORD: ${API_DATABASE_PASSWORD:?Run ./scripts/docker-up.sh}
-      AUTH_DATABASE_PASSWORD: ${AUTH_DATABASE_PASSWORD:?Run ./scripts/docker-up.sh}
+      DB_PASSWORD_VAR: POSTGRES_PASSWORD
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      API_DATABASE_PASSWORD: ${API_DATABASE_PASSWORD:-}
+      AUTH_DATABASE_PASSWORD: ${AUTH_DATABASE_PASSWORD:-}
     networks: [database]
+    volumes: *secrets-volumes
     depends_on:
       migrate: {condition: service_completed_successfully}
+
   api:
-    build: ./apps/api
+    <<: [*api-image, *restart, *hardening]
+    entrypoint: ["/bin/sh", "/openstock/entrypoint.sh", "/api"]
     environment:
+      <<: *secrets-env
       DATABASE_URL: postgresql://openstock_api_login@postgres:5432/openstockai?sslmode=disable
-      PGPASSWORD: ${API_DATABASE_PASSWORD}
+      DB_PASSWORD_VAR: API_DATABASE_PASSWORD
+      API_DATABASE_PASSWORD: ${API_DATABASE_PASSWORD:-}
       BETTER_AUTH_JWKS_URL: http://web:3017/api/auth/jwks
-      JWT_ISSUER: http://localhost:${WEB_PORT:-3017}
+      JWT_ISSUER: *public-url
       JWT_AUDIENCE: openstockai-api
-      AGENT_SERVICE_SECRET: ${AGENT_SERVICE_SECRET:?Run ./scripts/docker-up.sh}
       API_DB_MAX_CONNS: ${API_DB_MAX_CONNS:-8}
       API_ADDR: 0.0.0.0:8087
     ports: ["127.0.0.1:${API_PORT:-8087}:8087"]
     networks:
       default: {gw_priority: 1}
       database: {}
+    volumes: *secrets-volumes
+    stop_grace_period: 35s
     depends_on:
       provision: {condition: service_completed_successfully}
     healthcheck:
@@ -55,74 +136,135 @@ services:
       interval: 5s
       timeout: 4s
       retries: 20
+
   web:
-    build: {context: ., target: development}
-    image: ${COMPOSE_PROJECT_NAME:-openstockai}-dev:local
+    <<: [*restart, *hardening]
+    build: {context: ., target: web-production}
+    entrypoint: ["/bin/sh", "/openstock/entrypoint.sh"]
+    command: ["node", "apps/web/server.js"]
     environment:
+      <<: [*secrets-env, *llm-env]
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3017
       DATABASE_URL: postgresql://openstock_auth_login@postgres:5432/openstockai?sslmode=disable
-      PGPASSWORD: ${AUTH_DATABASE_PASSWORD}
+      DB_PASSWORD_VAR: AUTH_DATABASE_PASSWORD
+      AUTH_DATABASE_PASSWORD: ${AUTH_DATABASE_PASSWORD:-}
       AUTH_DB_MAX_CONNECTIONS: ${AUTH_DB_MAX_CONNECTIONS:-10}
-      BETTER_AUTH_URL: http://localhost:${WEB_PORT:-3017}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Run ./scripts/docker-up.sh}
+      BETTER_AUTH_URL: *public-url
       API_BASE_URL: http://api:8087
       JWT_AUDIENCE: openstockai-api
-      AGENT_SERVICE_SECRET: ${AGENT_SERVICE_SECRET}
       EVE_BASE_URL: http://agent:4273
-      LLM_PROVIDER: ${LLM_PROVIDER:-openai-compatible}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-}
-      LLM_PRICE_INPUT_PER_MTOK: ${LLM_PRICE_INPUT_PER_MTOK:-}
-      LLM_PRICE_OUTPUT_PER_MTOK: ${LLM_PRICE_OUTPUT_PER_MTOK:-}
-      AI_MAX_INPUT_TOKENS: ${AI_MAX_INPUT_TOKENS:-65536}
-      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-2048}
-      AI_MAX_STEPS_PER_TURN: ${AI_MAX_STEPS_PER_TURN:-8}
-      AI_TOOL_SELECTION: ${AI_TOOL_SELECTION:-progressive}
-      AI_TOOL_RESULT_FORMAT: ${AI_TOOL_RESULT_FORMAT:-auto}
-    ports: ["127.0.0.1:${WEB_PORT:-3017}:3017"]
+    ports: ["127.0.0.1:${WEB_PORT:-3000}:3017"]
     networks:
       # LLM provider egress must use the app network, not the private DB bridge.
       default: {gw_priority: 1}
       database: {}
+    volumes: *secrets-volumes
+    stop_grace_period: 35s
     depends_on:
       api: {condition: service_healthy}
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3017').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3017/api/setup-status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 10s
       start_period: 60s
       retries: 20
+
   agent:
-    build: {context: ., target: development}
-    image: ${COMPOSE_PROJECT_NAME:-openstockai}-dev:local
-    working_dir: /app/apps/agent
-    command: ["pnpm", "exec", "eve", "dev", "--host", "0.0.0.0", "--port", "4273", "--no-ui", "--no-default-extensions"]
+    <<: [*restart, *hardening]
+    build: {context: ., target: agent-production}
+    entrypoint: ["/bin/sh", "/openstock/entrypoint.sh"]
+    command: ["node", ".output/server/index.mjs"]
     environment:
-      # The shared configuration requires a URL; the agent receives no DB credentials.
+      <<: [*secrets-env, *llm-env]
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4273
+      EVE_TRACES_CONTENT: "off"
+      # The shared configuration requires these; the agent receives no DB credentials.
       DATABASE_URL: postgresql://unused:unused@unavailable/unused
       BETTER_AUTH_URL: http://web:3017
       BETTER_AUTH_SECRET: unused-agent-configuration-value-32chars
       API_BASE_URL: http://api:8087
       JWT_AUDIENCE: openstockai-api
-      AGENT_SERVICE_SECRET: ${AGENT_SERVICE_SECRET}
       EVE_BASE_URL: http://127.0.0.1:4273
-      LLM_PROVIDER: ${LLM_PROVIDER:-openai-compatible}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-}
-      LLM_PRICE_INPUT_PER_MTOK: ${LLM_PRICE_INPUT_PER_MTOK:-}
-      LLM_PRICE_OUTPUT_PER_MTOK: ${LLM_PRICE_OUTPUT_PER_MTOK:-}
-      AI_MAX_INPUT_TOKENS: ${AI_MAX_INPUT_TOKENS:-65536}
-      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-2048}
-      AI_MAX_STEPS_PER_TURN: ${AI_MAX_STEPS_PER_TURN:-8}
-      AI_TOOL_SELECTION: ${AI_TOOL_SELECTION:-progressive}
-      AI_TOOL_RESULT_FORMAT: ${AI_TOOL_RESULT_FORMAT:-auto}
-    volumes: ["eve_data:/app/apps/agent/.eve"]
+    volumes:
+      - eve_data:/app/apps/agent/.eve
+      - secrets:/run/openstock-secrets:ro
+      - ./docker:/openstock:ro
+    stop_grace_period: 35s
     depends_on:
-      web: {condition: service_healthy}
+      api: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4273/eve/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+
+  # --profile demo: loads the fictional "Ironwood Hardware" data once; idempotent.
+  seed-demo:
+    <<: *postgres-image
+    profiles: [demo]
+    entrypoint: ["/bin/sh", "/openstock/entrypoint.sh"]
+    command: ["psql", "-X", "-q", "--single-transaction", "-v", "ON_ERROR_STOP=1", "-f", "/openstock/demo/seed.sql"]
+    environment:
+      PGHOST: postgres
+      PGUSER: openstockai
+      PGDATABASE: openstockai
+      DB_PASSWORD_VAR: POSTGRES_PASSWORD
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    networks: [database]
+    volumes: *secrets-volumes
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  # --profile ollama: a local model server plus a one-shot pull of LLM_MODEL.
+  ollama:
+    profiles: [ollama]
+    image: ollama/ollama:0.30.0
+    <<: *restart
+    ports: ["127.0.0.1:${OLLAMA_PORT:-11434}:11434"]
+    volumes: ["ollama_data:/root/.ollama"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 10s
+      start_period: 10s
+      retries: 20
+  ollama-pull:
+    profiles: [ollama]
+    image: ollama/ollama:0.30.0
+    entrypoint: ["/bin/sh", "-c", "exec ollama pull \"$$MODEL\""]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      MODEL: ${LLM_MODEL:-qwen3:8b}
+    depends_on:
+      ollama: {condition: service_healthy}
+
+  # --profile tools: `docker compose run --rm reset-owner-password` (reads the new password
+  # from a hidden prompt, or from stdin with -T). Never takes the password as an argument.
+  reset-owner-password:
+    profiles: [tools]
+    build: {context: ., target: owner-tools}
+    entrypoint: ["/bin/sh", "/openstock/entrypoint.sh"]
+    command: ["node", "reset-owner-password.mjs"]
+    environment:
+      DATABASE_URL: postgresql://openstock_auth_login@postgres:5432/openstockai?sslmode=disable
+      DB_PASSWORD_VAR: AUTH_DATABASE_PASSWORD
+      AUTH_DATABASE_PASSWORD: ${AUTH_DATABASE_PASSWORD:-}
+    networks: [database]
+    volumes: *secrets-volumes
+    depends_on:
+      provision: {condition: service_completed_successfully}
+
 volumes:
+  secrets:
   postgres_data:
   eve_data:
+  ollama_data:
+
 networks:
   database:
     driver: bridge

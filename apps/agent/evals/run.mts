@@ -8,11 +8,10 @@
 // Needs Docker and a real LLM key. Extra arguments are passed to `eve eval`
 // (for example `pnpm agent:eval -- approval`). Flags: --keep leaves the stack up,
 // --check only validates the LLM configuration and Docker, then exits.
-import { spawn, spawnSync, type SpawnOptions } from "node:child_process";
+import { spawn, type SpawnOptions } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -56,7 +55,6 @@ function llmEnvironment() {
 }
 
 function writeEnvFile(directory: string, llm: Record<string, string>) {
-  copyFileSync(join(root, ".env.example"), join(directory, ".env.example"));
   const initial = {
     COMPOSE_PROJECT_NAME: FIXTURE_PROJECT,
     WEB_PORT: ports.web,
@@ -72,12 +70,6 @@ function writeEnvFile(directory: string, llm: Record<string, string>) {
       .join("\n") + "\n",
     { mode: 0o600 },
   );
-  // Reuse the repository bootstrap to generate the random secrets and derived URLs.
-  const result = spawnSync(process.execPath, [join(root, "scripts/setup-local.mjs")], {
-    cwd: directory,
-    stdio: "inherit",
-  });
-  if (result.status !== 0) throw new Error("Could not generate the temporary environment.");
   chmodSync(join(directory, ".env"), 0o600);
   return join(directory, ".env");
 }

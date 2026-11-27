@@ -1,55 +1,87 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, copyFileSync, readFileSync, writeFileSync, statSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { parseEnv } from "node:util";
 import { test } from "node:test";
 import { serverEnv } from "../src/env";
 
-const bootstrap = resolve("../../scripts/setup-local.mjs");
 const template = resolve("../../.env.example");
-for (const existing of [false, true]) {
-  test(`bootstrap ${existing ? "existing" : "new"} env preserves values and is idempotent`, () => {
-    const directory = mkdtempSync(join(tmpdir(), "openstockai-config-"));
-    try {
-      copyFileSync(template, join(directory, ".env.example"));
-      const original =
-        'WEB_PORT=3020\nAPI_PORT=8089\nPOSTGRES_PORT=55439\nLLM_MODEL="custom/model #1"\nLLM_API_KEY="private-$-value"\nBETTER_AUTH_SECRET="01234567890123456789012345678901"\n';
-      if (existing) writeFileSync(join(directory, ".env"), original);
-      const run = () => execFileSync(process.execPath, [bootstrap], { cwd: directory });
-      run();
-      const first = readFileSync(join(directory, ".env"), "utf8");
-      const values = parseEnv(first);
-      for (const key of Object.keys(parseEnv(readFileSync(template, "utf8"))))
-        assert.ok(key in values, key);
-      if (existing)
-        for (const [key, value] of Object.entries(parseEnv(original)))
-          assert.equal(values[key], value);
-      assert.equal(new URL(values.DATABASE_URL!).port, existing ? "55439" : "55432");
-      assert.equal(new URL(values.AUTH_DATABASE_URL!).username, "openstock_auth_login");
-      assert.equal(new URL(values.API_DATABASE_URL!).username, "openstock_api_login");
-      assert.equal(statSync(join(directory, ".env")).mode & 0o777, 0o600);
-      run();
-      assert.equal(readFileSync(join(directory, ".env"), "utf8"), first);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-}
-test("invalid bootstrap URL fails without disclosing input", () => {
-  const directory = mkdtempSync(join(tmpdir(), "openstockai-config-"));
+const entrypoint = resolve("../../docker/entrypoint.sh");
+const init = resolve("../../docker/init.sh");
+const secretNames = [
+  "POSTGRES_PASSWORD",
+  "API_DATABASE_PASSWORD",
+  "AUTH_DATABASE_PASSWORD",
+  "BETTER_AUTH_SECRET",
+  "AGENT_SERVICE_SECRET",
+];
+
+test(".env.example only asks for LLM settings and holds no secrets", () => {
+  const text = readFileSync(template, "utf8");
+  const values = parseEnv(text);
+  assert.ok("LLM_PROVIDER" in values && "LLM_MODEL" in values);
+  assert.equal(values.LLM_API_KEY, "");
+  for (const name of secretNames) assert.ok(!text.includes(name), name);
+});
+
+test("init generates each secret once and never rotates it", () => {
+  const directory = mkdtempSync(join(tmpdir(), "openstockai-init-"));
+  const run = () =>
+    execFileSync("sh", [init], {
+      env: { ...process.env, SECRETS_DIR: directory },
+      encoding: "utf8",
+    });
   try {
-    copyFileSync(template, join(directory, ".env.example"));
-    writeFileSync(join(directory, ".env"), "DATABASE_URL=private-invalid-secret\n");
-    const result = spawnSync(process.execPath, [bootstrap], { cwd: directory, encoding: "utf8" });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /DATABASE_URL/);
-    assert.doesNotMatch(result.stderr + result.stdout, /private-invalid-secret/);
+    const first = run();
+    const values = secretNames.map((name) => readFileSync(join(directory, name), "utf8"));
+    for (const value of values) assert.match(value, /^[0-9a-f]{64}$/);
+    assert.equal(new Set(values).size, secretNames.length);
+    for (const value of values) assert.ok(!first.includes(value));
+    assert.equal(statSync(join(directory, secretNames[0]!)).mode & 0o777, 0o444);
+    assert.match(run(), /already present/);
+    assert.deepEqual(
+      secretNames.map((name) => readFileSync(join(directory, name), "utf8")),
+      values,
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("entrypoint loads generated secrets, lets overrides win and maps PGPASSWORD", () => {
+  const directory = mkdtempSync(join(tmpdir(), "openstockai-entry-"));
+  try {
+    writeFileSync(join(directory, "AGENT_SERVICE_SECRET"), "generated-agent");
+    writeFileSync(join(directory, "BETTER_AUTH_SECRET"), "generated-auth");
+    writeFileSync(join(directory, "AUTH_DATABASE_PASSWORD"), "generated-db");
+    const result = spawnSync(
+      "sh",
+      [entrypoint, "sh", "-c", 'echo "$AGENT_SERVICE_SECRET $BETTER_AUTH_SECRET $PGPASSWORD"'],
+      {
+        env: {
+          PATH: process.env.PATH,
+          OPENSTOCK_SECRETS_DIR: directory,
+          AGENT_SERVICE_SECRET: "",
+          BETTER_AUTH_SECRET: "override-auth",
+          DB_PASSWORD_VAR: "AUTH_DATABASE_PASSWORD",
+        },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout.trim(), "generated-agent override-auth generated-db");
+    const missing = spawnSync("sh", [entrypoint, "true"], {
+      env: { PATH: process.env.PATH, OPENSTOCK_SECRETS_DIR: directory, DB_PASSWORD_VAR: "NOPE" },
+      encoding: "utf8",
+    });
+    assert.notEqual(missing.status, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("server configuration rejects protocols, credentials in HTTP URLs and missing secrets safely", () => {
   const valid = {
     DATABASE_URL: "postgresql://user:secret@localhost/db",
@@ -75,22 +107,5 @@ test("server configuration rejects protocols, credentials in HTTP URLs and missi
         return true;
       },
     );
-  }
-});
-
-test("a copied template gets private database credentials", () => {
-  const directory = mkdtempSync(join(tmpdir(), "openstockai-config-"));
-  try {
-    copyFileSync(template, join(directory, ".env.example"));
-    copyFileSync(template, join(directory, ".env"));
-    execFileSync(process.execPath, [bootstrap], { cwd: directory });
-    const values = parseEnv(readFileSync(join(directory, ".env"), "utf8"));
-    assert.notEqual(values.POSTGRES_PASSWORD, "change-me");
-    assert.equal(
-      decodeURIComponent(new URL(values.DATABASE_URL!).password),
-      values.POSTGRES_PASSWORD,
-    );
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
   }
 });

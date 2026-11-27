@@ -139,10 +139,12 @@ Requirements: Docker with Compose. You also need an API key for an LLM provider,
 ```bash
 cp .env.example .env
 # edit .env: set LLM_PROVIDER, LLM_BASE_URL, LLM_API_KEY and LLM_MODEL
-docker compose up -d
+docker compose up -d --build
 ```
 
-Open <http://localhost:3000> and create the owner account. Secrets and database credentials are generated for you on first start. There are no default credentials.
+Open <http://localhost:3000> and create the owner account. Secrets and database credentials are generated for you on first start. There are no default credentials. Without a valid LLM key the app still works and the assistant reports that AI is not configured.
+
+After editing `.env`, run `docker compose up -d` again (a plain `docker compose restart` does not re-read `.env`).
 
 Other ways to run it:
 
@@ -150,14 +152,17 @@ Other ways to run it:
 # Start with fictional demo data (a small hardware store)
 docker compose --profile demo up -d
 
-# Use a local model instead of a hosted one (set LLM_PROVIDER=ollama and LLM_MODEL in .env)
+# Use a local model instead of a hosted one
+# (in .env: LLM_PROVIDER=ollama and a tool-capable model such as LLM_MODEL=qwen3:8b)
 docker compose --profile ollama up -d
 
 # Hot reload for development
-docker compose -f compose.yaml -f compose.dev.yaml up
+docker compose -f compose.yaml -f compose.dev.yaml up --build
 
-# Forgot the owner password
+# Forgot the owner password (prompts for the new one and signs out every session)
 docker compose run --rm reset-owner-password
+# or non-interactively
+printf '%s\n' "$NEW_PASSWORD" | docker compose run --rm -T reset-owner-password
 
 # Delete everything, including the database volume
 docker compose down -v
@@ -192,11 +197,10 @@ Internal secrets (`BETTER_AUTH_SECRET`, `AGENT_SERVICE_SECRET`, database passwor
 
 ## Local development without Docker
 
-Requirements: Node 24, pnpm, Go 1.27 and a PostgreSQL 18 server that the `DATABASE_URL` in `.env` can reach.
+The hot-reload Compose override above is the easiest development setup. To run the processes on the host instead you need Node 24, pnpm, Go 1.27 and a PostgreSQL 18 server, plus the variables that `compose.yaml` passes to each service set in `.env`: `DATABASE_URL`, `API_DATABASE_URL`, `AUTH_DATABASE_URL`, `API_DATABASE_PASSWORD`, `AUTH_DATABASE_PASSWORD`, `BETTER_AUTH_SECRET`, `AGENT_SERVICE_SECRET` (at least 32 characters) and the service URLs (`BETTER_AUTH_URL`, `BETTER_AUTH_JWKS_URL`, `API_BASE_URL`, `EVE_BASE_URL`).
 
 ```bash
 pnpm install
-pnpm setup:local        # completes .env: generates secrets and database credentials
 pnpm db:migrate         # apply goose migrations
 pnpm db:provision       # create the least-privilege API and auth logins
 pnpm api:dev            # Go API

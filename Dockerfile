@@ -23,7 +23,7 @@ COPY --chown=node:node packages/api-client/package.json ./packages/api-client/pa
 COPY --chown=node:node packages/server/package.json ./packages/server/package.json
 RUN pnpm install --frozen-lockfile
 COPY --chown=node:node . .
-RUN mkdir -p apps/agent/.eve
+RUN mkdir -p apps/agent/.eve apps/web/.next
 ENV NEXT_TELEMETRY_DISABLED=1
 EXPOSE 3017
 CMD ["pnpm", "--filter", "@openstockai/web", "exec", "next", "dev", "--hostname", "0.0.0.0", "--port", "3017"]
@@ -42,8 +42,18 @@ COPY --from=web-build --chown=node:node /app/apps/web/.next/static ./apps/web/.n
 EXPOSE 3017
 CMD ["node", "apps/web/server.js"]
 
-FROM development AS agent-production
+# Eve's build output bundles its dependencies; .eve is the volume mount for agent state.
+FROM bootstrap AS agent-production
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4273 EVE_TRACES_CONTENT=off
-COPY --from=agent-build --chown=node:node /app/apps/agent/.output ./apps/agent/.output
+WORKDIR /app/apps/agent
+RUN mkdir -p .eve
+COPY --from=agent-build --chown=node:node /app/apps/agent/.output ./.output
 EXPOSE 4273
-CMD ["node", "apps/agent/.output/server/index.mjs"]
+CMD ["node", ".output/server/index.mjs"]
+
+# Owner password reset: the script and its two dependencies only (`reset-owner-password`).
+FROM bootstrap AS owner-tools
+COPY --chown=node:node docker/owner-tools/package.json docker/owner-tools/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+COPY --chown=node:node apps/web/scripts/reset-owner-password.mjs ./
+CMD ["node", "reset-owner-password.mjs"]

@@ -6,7 +6,7 @@ import { pageResult } from "../lib/results";
 import { modelPage } from "../lib/model-output";
 export default defineTool({
   description:
-    "Consulta saldos actuales por producto y almacén. Filtra por IDs; getInventorySummary obtiene totales globales sin listar saldos.",
+    "Current balances per product and warehouse. Filter by IDs; getInventorySummary returns global totals without listing balances.",
   inputSchema: page
     .extend({ product: z.uuid().optional(), warehouse: z.uuid().optional() })
     .strict(),

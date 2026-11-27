@@ -173,7 +173,7 @@ function mockAPI(t: TestContext) {
       assert.equal(headers.get("X-Agent-Secret"), "s".repeat(32));
       assert.equal(headers.get("X-Organization-ID"), null);
       if (state.forbidden)
-        return reply({ error: { code: "FORBIDDEN", message: "Permiso denegado." } }, 403);
+        return reply({ error: { code: "FORBIDDEN", message: "Permission denied." } }, 403);
       if (url.pathname === "/v1/agent-actions")
         return reply({ id: body.id, approvalStatus: "not_required" });
       if (url.pathname.startsWith("/v1/agent-actions/") && method === "PATCH") {
@@ -185,7 +185,7 @@ function mockAPI(t: TestContext) {
       }
       if (url.pathname === "/v1/products" && method === "POST")
         return state.failWrite
-          ? reply({ error: { code: "FORBIDDEN", message: "Escritura denegada." } }, 403)
+          ? reply({ error: { code: "FORBIDDEN", message: "Write denied." } }, 403)
           : reply({ id: userId });
       if (url.pathname === "/v1/products")
         return reply({ items: state.products, total: state.products.length });
@@ -196,11 +196,11 @@ function mockAPI(t: TestContext) {
       if (url.pathname === "/v1/warehouses")
         return reply([{ id: warehouseId, name: "Main warehouse" }]);
       if (url.pathname === "/v1/units")
-        return reply([{ code: "kg", name: "Kilogramo", symbol: "kg", decimals: 3, active: true }]);
+        return reply([{ code: "kg", name: "Kilogram", symbol: "kg", decimals: 3, active: true }]);
       if (url.pathname === "/v1/stock-movements") return reply([]);
       if (url.pathname === "/v1/identity")
         return reply({
-          name: "Prueba",
+          name: "Test",
           email: "test@example.test",
           user_id: userId,
         });
@@ -303,7 +303,7 @@ test("large product results stay successful, audited and compact for the model",
     stock: 1.5,
     unit_code: "kg",
     unit_symbol: "kg",
-    unit_name: "Kilogramo",
+    unit_name: "Kilogram",
     unit_decimals: 3,
   }));
   const result = await execute(searchProducts, { query: "Arroz" });
@@ -475,11 +475,13 @@ test("filters go to Go, lookups paginate beyond their first page and schemas sta
   assert.equal(schema(getStockMovements).safeParse({ since: "yesterday" }).success, false);
 });
 
-test("Eve resolves DeepInfra with explicit budgets", async (t) => {
+test("Eve resolves the configured provider with explicit budgets", async (t) => {
   t.mock.property(process, "env", {
     ...process.env,
-    DEEPINFRA_API_KEY: "test-key",
-    AI_MODEL: "test-model",
+    LLM_PROVIDER: "openai-compatible",
+    LLM_BASE_URL: "https://llm.example.test/v1",
+    LLM_API_KEY: "test-key",
+    LLM_MODEL: "test-model",
   });
   assert.equal(config.limits?.maxInputTokensPerSession, 200_000);
   assert.equal(config.limits?.maxOutputTokensPerSession, 10_000);
@@ -492,7 +494,7 @@ test("Eve resolves DeepInfra with explicit budgets", async (t) => {
   assert(typeof selection === "object" && selection !== null && "model" in selection);
   assert(typeof selection.model !== "string");
   assert.equal(selection.model.modelId, "test-model");
-  assert.equal(selection.model.provider, "deepinfra.chat");
+  assert.equal(selection.model.provider, "openai-compatible.chat");
   assert.equal(selection.modelContextWindowTokens, 65536);
   assert.throws(
     () =>
@@ -534,7 +536,7 @@ test("tool calls Go with scoped JWT, stops at approval, never invents success", 
     if (req.url === "/v1/products") {
       if (denied) {
         res.statusCode = 403;
-        res.end(JSON.stringify({ error: { code: "FORBIDDEN", message: "Permiso denegado." } }));
+        res.end(JSON.stringify({ error: { code: "FORBIDDEN", message: "Permission denied." } }));
         return;
       }
       res.end(JSON.stringify({ id: userId }));

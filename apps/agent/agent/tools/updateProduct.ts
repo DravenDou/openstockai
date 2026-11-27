@@ -10,7 +10,8 @@ const schema = product
   .strict();
 const payload = (input: z.infer<typeof schema>) => schema.omit({ id: true }).strip().parse(input);
 export default defineWorkflowTool({
-  description: "Edita datos del catálogo sin modificar stock ni SKU.",
+  description:
+    "Edit catalog data of a product (name, category, unit, prices, minimum, location, barcode, description). Never changes stock or SKU; use the stock tools for stock.",
   inputSchema: schema,
   approval: approval((input) => `PATCH /v1/products/${input.id}`, payload),
   async execute(input, ctx) {

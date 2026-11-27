@@ -1,17 +1,13 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { call } from "../lib/api";
-import { enableToolGroups } from "../lib/tool-selection";
+import { enableToolGroups, groupDescriptions, toolGroupNames } from "../lib/tool-selection";
 
 export default defineTool({
-  description:
-    "Habilita tools para catálogo, ajustes/transferencias o proveedores. No modifica inventario. Combina grupos si la tarea lo necesita.",
+  description: `Enable more tools for this turn by group: ${toolGroupNames.map((name) => `${name} (${groupDescriptions[name]})`).join("; ")}. Does not change any data. Combine groups when the task needs it.`,
   inputSchema: z
     .object({
-      groups: z
-        .array(z.enum(["catalog", "stock", "suppliers"]))
-        .min(1)
-        .max(3),
+      groups: z.array(z.enum(toolGroupNames)).min(1).max(toolGroupNames.length),
     })
     .strict(),
   async execute(input, ctx) {

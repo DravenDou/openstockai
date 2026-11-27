@@ -43,18 +43,39 @@ test("movement approvals display English names while retaining internal tool val
     const input = {
       request: {
         prompt: "Confirm the movement",
-        action: { input: { type, quantity: 100 } },
+        action: { toolName: "adjustStock", input: { type, quantity: 100 } },
         options: [{ id: "approve", label: "approve" }],
       },
     };
     const html = renderToStaticMarkup(
       createElement(ApprovalCard, { input, onRespond: async () => {} }),
     );
-    assert(html.includes(`Movement: ${label}`));
+    assert(html.includes(">Movement</dt>"));
+    assert(html.includes(`>${label}</dd>`));
     assert(!html.includes(type));
     assert.match(html, /Approve/);
     assert.equal(input.request.action.input.type, type);
   }
+});
+
+test("destructive approvals are visibly marked and use a specific confirm label", () => {
+  const input = {
+    request: {
+      prompt: "Delete this supplier?",
+      action: { toolName: "deleteSupplier", input: { id: "550e8400-e29b-41d4-a716-446655440003" } },
+      options: [
+        { id: "approve", label: "approve" },
+        { id: "cancel", label: "cancel" },
+      ],
+    },
+  };
+  const html = renderToStaticMarkup(
+    createElement(ApprovalCard, { input, onRespond: async () => {} }),
+  );
+  assert.match(html, /Destructive/);
+  assert.match(html, /Delete supplier/);
+  assert.match(html, /Reject/);
+  assert.match(html, /border-destructive/);
 });
 
 test("a failed assistant turn with no text renders its actionable error instead of an empty bubble", () => {

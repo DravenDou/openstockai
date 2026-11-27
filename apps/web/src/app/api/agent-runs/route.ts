@@ -1,9 +1,48 @@
-import { identity } from "@/server/http";
+import { z } from "zod";
+import { goHeaders, identity } from "@/server/http";
 import { apiFailure, HTTPError } from "@openstockai/server/http";
 import { serverEnv } from "@openstockai/server/env";
-import { traceDetailSchema, traceListSchema, traceQuerySchema } from "@openstockai/api-client/agent-traces";
+import {
+  configuredPrices,
+  enrichDetail,
+  enrichList,
+  pricesConfigured,
+} from "@openstockai/server/ai/runs";
+import type { RunAction } from "@openstockai/api-client/agent-runs";
+import {
+  traceDetailSchema,
+  traceListSchema,
+  traceQuerySchema,
+} from "@openstockai/api-client/agent-traces";
 
 export const runtime = "nodejs";
+const actionsSchema = z.array(
+  z.object({
+    id: z.string(),
+    conversation_id: z.string(),
+    tool_name: z.string(),
+    tool_input: z.unknown(),
+    status: z.string(),
+    approval_status: z.string(),
+    started_at: z.string(),
+    error: z.string().nullable(),
+  }),
+);
+// Go agent actions add arguments and approval state. If they are unavailable, the run
+// still renders from the trace alone.
+async function goActions(request: Request): Promise<RunAction[]> {
+  try {
+    const response = await fetch(`${serverEnv().API_BASE_URL}/v1/agent-actions`, {
+      headers: await goHeaders(request.headers),
+      cache: "no-store",
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(10_000)]),
+      redirect: "error",
+    });
+    return response.ok ? actionsSchema.parse(await response.json()) : [];
+  } catch {
+    return [];
+  }
+}
 export async function GET(request: Request) {
   try {
     const env = serverEnv();
@@ -31,8 +70,19 @@ export async function GET(request: Request) {
         "TRACES_UNAVAILABLE",
         "Could not load agent runs. Try again in a few seconds.",
       );
-    const schema = query.data.traceId ? traceDetailSchema : traceListSchema;
-    return Response.json(schema.parse(await response.json()), {
+    const [actions, prices] = [await goActions(request), configuredPrices()];
+    const body: unknown = await response.json();
+    const payload = query.data.traceId
+      ? enrichDetail(traceDetailSchema.parse(body), actions, prices)
+      : (() => {
+          const list = traceListSchema.parse(body);
+          return {
+            ...list,
+            items: enrichList(list.items, actions, prices),
+            pricesConfigured: pricesConfigured(prices),
+          };
+        })();
+    return Response.json(payload, {
       headers: {
         "Cache-Control": "private, no-store",
         Vary: "Cookie",

@@ -47,7 +47,7 @@ export function aiError(error: unknown, signal?: AbortSignal): APIError {
     if (error.statusCode === 400 || error.statusCode === 404)
       return new APIError(
         "AI_PROVIDER_MODEL",
-        "The model or its parameters are not available. Check AI_MODEL and its compatibility.",
+        "The model or its parameters are not available. Check LLM_MODEL and that the provider supports it.",
         503,
       );
     if (error.statusCode === 429)

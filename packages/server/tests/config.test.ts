@@ -15,7 +15,7 @@ for (const existing of [false, true]) {
     try {
       copyFileSync(template, join(directory, ".env.example"));
       const original =
-        'WEB_PORT=3020\nAPI_PORT=8089\nPOSTGRES_PORT=55439\nAI_MODEL="custom/model #1"\nDEEPINFRA_API_KEY="private-$-value"\nBETTER_AUTH_SECRET="01234567890123456789012345678901"\n';
+        'WEB_PORT=3020\nAPI_PORT=8089\nPOSTGRES_PORT=55439\nLLM_MODEL="custom/model #1"\nLLM_API_KEY="private-$-value"\nBETTER_AUTH_SECRET="01234567890123456789012345678901"\n';
       if (existing) writeFileSync(join(directory, ".env"), original);
       const run = () => execFileSync(process.execPath, [bootstrap], { cwd: directory });
       run();

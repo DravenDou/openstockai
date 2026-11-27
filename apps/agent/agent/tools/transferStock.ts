@@ -4,7 +4,8 @@ import { amount } from "../lib/schemas";
 import { approval } from "../lib/api";
 import { write } from "../lib/write";
 export default defineWorkflowTool({
-  description: "Transfiere stock entre dos almacenes en una sola transacción.",
+  description:
+    "Transfer stock between two warehouses in a single transaction (both movements are confirmed together).",
   inputSchema: z
     .object({
       productId: z.uuid(),

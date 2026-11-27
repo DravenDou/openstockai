@@ -8,7 +8,12 @@ export const page = z
   .strict();
 export const money = z
   .string()
-  .regex(/^\d{1,16}(\.\d{1,2})?$/, "Importe decimal, por ejemplo 14.99");
+  .regex(/^\d{1,16}(\.\d{1,2})?$/, "Decimal amount with up to two decimals, for example 14.99");
+// Cursor pagination used by history endpoints (purchases, audit log).
+export const cursor = {
+  beforeId: z.uuid().optional(),
+  beforeDate: z.string().max(64).optional(),
+};
 export const amount = z.number().multipleOf(0.001).min(-1e9).max(1e9);
 export const product = z
   .object({
@@ -48,3 +53,66 @@ export const adjustment = z
     reference: z.string().max(200).default(""),
   })
   .strict();
+export const lookupName = z.string().trim().min(1).max(120);
+export const supplier = z
+  .object({ name: lookupName, email: z.union([z.literal(""), z.email().max(254)]).optional() })
+  .strict();
+export const purchaseItem = z
+  .object({ productId: z.uuid(), quantity: amount.positive(), costPrice: money })
+  .strict();
+export const purchase = z
+  .object({
+    warehouseId: z.uuid(),
+    supplierId: z.uuid().optional(),
+    reference: z.string().trim().min(1).max(200),
+    items: z.array(purchaseItem).min(1).max(100),
+  })
+  .strict();
+export const stockCount = z
+  .object({
+    productId: z.uuid(),
+    warehouseId: z.uuid(),
+    counted: amount.nonnegative(),
+    expected: amount.nonnegative(),
+    reference: z.string().trim().min(1).max(200).default("Stock count"),
+  })
+  .strict();
+export const unit = z
+  .object({
+    code: z.string().regex(/^[a-z][a-z0-9_]{0,23}$/, "Lowercase letters, digits and underscores"),
+    name: z.string().trim().min(1).max(60),
+    symbol: z.string().trim().min(1).max(12),
+    decimals: z.number().int().min(0).max(3),
+    active: z.boolean().default(true),
+  })
+  .strict();
+export const currencies = ["BOB", "EUR", "GBP", "USD"] as const;
+export const settingsPatch = z
+  .object({
+    store: z.string().trim().min(1).max(120),
+    email: z.email().max(254),
+    currency: z.enum(currencies),
+    timezone: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64)
+      .describe("IANA time zone, for example Europe/Madrid"),
+    automatic: z
+      .boolean()
+      .describe(
+        "Auto-approve low-risk writes. Deletes, archives and restores always need approval.",
+      ),
+    confirm: z.boolean(),
+    lowStock: z.boolean(),
+  })
+  .partial()
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, "Provide at least one setting to change");
+
+// The target ID travels in the URL; Go registers and hashes only the remaining body.
+export function withoutId<T extends Record<string, unknown>>(input: T): Omit<T, "id"> {
+  const { id, ...body } = input;
+  void id;
+  return body;
+}

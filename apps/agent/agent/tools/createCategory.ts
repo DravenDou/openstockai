@@ -3,7 +3,7 @@ import { z } from "zod";
 import { approval } from "../lib/api";
 import { write } from "../lib/write";
 export default defineWorkflowTool({
-  description: "Crea una categoría.",
+  description: "Create a category. Search categories first to avoid duplicates.",
   inputSchema: z.object({ name: z.string().trim().min(1).max(120) }).strict(),
   approval: approval(() => "POST /v1/categories"),
   async execute(input, ctx) {

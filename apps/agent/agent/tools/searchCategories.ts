@@ -3,7 +3,7 @@ import { page, query } from "../lib/schemas";
 import { call } from "../lib/api";
 import { pageResult } from "../lib/results";
 export default defineTool({
-  description: "Busca categorías por nombre.",
+  description: "Search categories by name.",
   inputSchema: query.extend(page.shape).strict(),
   async execute(input, ctx) {
     const result = await call(ctx, "/v1/categories", "get", undefined, { query: input });

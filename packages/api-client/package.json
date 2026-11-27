@@ -7,6 +7,7 @@
     "./contract": "./src/contract.ts",
     "./generated": "./src/generated.ts",
     "./agent-traces": "./src/agent-traces.ts",
+    "./agent-runs": "./src/agent-runs.ts",
     "./runtime.json": "./src/runtime.json"
   },
   "scripts": {

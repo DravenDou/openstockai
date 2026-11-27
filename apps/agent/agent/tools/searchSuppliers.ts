@@ -3,7 +3,7 @@ import { page, query } from "../lib/schemas";
 import { call } from "../lib/api";
 import { pageResult } from "../lib/results";
 export default defineTool({
-  description: "Busca proveedores por nombre.",
+  description: "Search suppliers by name or email.",
   inputSchema: query.extend(page.shape).strict(),
   async execute(input, ctx) {
     const result = await call(ctx, "/v1/suppliers", "get", undefined, { query: input });

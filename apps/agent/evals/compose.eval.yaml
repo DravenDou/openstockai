@@ -1,0 +1,5 @@
+# Override used only by `pnpm agent:eval` (project name openstockai-eval, own volumes).
+# It publishes the agent so `eve eval` can reach it from the host.
+services:
+  agent:
+    ports: ["127.0.0.1:${EVAL_AGENT_PORT:-4373}:4273"]

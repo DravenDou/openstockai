@@ -1,7 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "include": [
-    "**/*.ts"
+    "**/*.ts",
+    "evals/run.mts"
   ],
   "exclude": [
     "node_modules",

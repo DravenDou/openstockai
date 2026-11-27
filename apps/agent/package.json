@@ -5,9 +5,9 @@
   "scripts": {
     "dev": "eve dev --host 127.0.0.1 --port 4273 --no-ui --no-default-extensions",
     "build": "eve build",
-    "eval": "eve eval --url http://127.0.0.1:4273",
+    "eval": "tsx evals/run.mts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/agent.test.ts tests/model-output.test.ts tests/agent-runs.test.ts tests/agent-traces.test.ts"
+    "test": "tsx --test tests/agent.test.ts tests/tools.test.ts tests/model-output.test.ts tests/agent-runs.test.ts tests/agent-traces.test.ts tests/agent-run-timeline.test.ts"
   },
   "dependencies": {
     "@toon-format/toon": "4.4.0",

@@ -1,0 +1,57 @@
+# Agent evals
+
+End-to-end evals for the Eve agent, run against a real LLM and a **throwaway** copy of the app.
+They never touch your data: the runner starts its own stack, seeds a fixture and deletes it afterwards.
+
+```bash
+# needs Docker and LLM_* values (shell or .env; they are only forwarded, never printed)
+pnpm agent:eval                    # all evals
+pnpm agent:eval -- approval export # only evals whose id starts with these
+pnpm agent:eval -- --keep          # leave the eval stack running for inspection
+pnpm agent:eval -- --check         # only validate LLM config + Docker, then exit
+pnpm --filter @openstockai/agent exec eve eval --list   # list evals without running them
+```
+
+Evals cost tokens. `--check` and `--list` do not call the model.
+
+## What `pnpm agent:eval` does
+
+1. Writes a private env file in a temporary directory (random secrets, high ports 3917/8987/55917/4373,
+   your `LLM_*` and `AI_*` values) using `scripts/setup-local.mjs`. Your `.env` is only read for those keys.
+2. Runs `docker compose -p openstockai-eval` with `compose.yaml` plus `compose.eval.yaml` (which publishes
+   the agent on `127.0.0.1:4373`). The project name gives it its own network and database volume.
+3. Creates the owner `eval-fixture@example.test` through the sign-up API and the fixture (`seed.ts`)
+   through the public REST API: three warehouses, categories, suppliers and six products with
+   deliberately ambiguous names (two waters, two "North" warehouses), a low-stock item and a product
+   whose description contains a prompt injection. Auto-approve is on.
+4. Runs `eve eval --url http://127.0.0.1:4373` with `OPENSTOCK_EVAL_FIXTURE` pointing at the fixture file
+   (owner session cookie and IDs; kept in the temp directory, mode 600).
+5. Always runs `docker compose -p openstockai-eval down -v` and deletes the temp directory
+   (the project name is a constant, so it cannot remove your real stack).
+
+## Safety guard
+
+`evals.config.ts` refuses to run unless all of these hold: `--url` is local and equals the fixture's agent URL,
+the fixture file declares project `openstockai-eval`, the signed-in user is `eval-fixture@example.test`, and the
+store name in Settings is `OpenStock AI Eval Fixture`. Running `eve eval` by hand against your normal instance
+therefore fails during setup. An eval that edits settings restores the store name in a `finally` block.
+
+## Evals
+
+| File | Checks |
+| --- | --- |
+| `inventory` | search and low-stock reads |
+| `lookup` | product by SKU; reply follows the user's language (Spanish) |
+| `ambiguity` | ambiguous product and warehouse lead to a clarifying question, no write |
+| `create` | product with initial stock is created and verified through the API |
+| `approval` | large adjustment parks for approval with the exact payload; approve and reject both verified |
+| `destructive` | delete category and archive product always need approval even with auto-approve on; rejecting keeps data |
+| `purchase` | a delivery is recorded as a purchase; stock and total verified |
+| `settings` | partial settings update keeps other fields |
+| `analytics` | valuation, turnover and supplier-spend questions route to the analytics tools |
+| `export` | CSV request returns a `/api/exports/products` link |
+| `audit` | recent changes read the audit log |
+| `no-sql` | refuses SQL; ignores an instruction injected through product data |
+
+Evals share one fixture and run sequentially, so they are written to be order independent. Add a new eval as
+`<name>.eval.ts` using the helpers in `fixtures.ts`; extend `seed.ts` if it needs more data.

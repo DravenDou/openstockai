@@ -3,11 +3,11 @@ import { z } from "zod";
 import { page, query } from "../lib/schemas";
 import { call } from "../lib/api";
 import { pageResult, productSummary } from "../lib/results";
-import { enableToolGroups } from "../lib/tool-selection";
+import { enableToolGroups, toolGroupNames } from "../lib/tool-selection";
 import { modelPage } from "../lib/model-output";
 export default defineTool({
   description:
-    "Busca productos por nombre, SKU o barcode. nextAction habilita catálogo o stock en esta misma búsqueda; getProduct obtiene detalles.",
+    "Search products by name, SKU or barcode, with optional category, warehouse, stock (low/out) and status filters. nextAction enables a tool group during this search; getProduct returns full details.",
   inputSchema: query
     .extend(page.shape)
     .extend({
@@ -15,7 +15,7 @@ export default defineTool({
       warehouse: z.uuid().optional(),
       stock: z.enum(["low", "out"]).optional(),
       status: z.enum(["active", "archived"]).optional(),
-      nextAction: z.enum(["catalog", "stock", "suppliers"]).optional(),
+      nextAction: z.enum(toolGroupNames).optional(),
     })
     .strict(),
   async execute(input, ctx) {

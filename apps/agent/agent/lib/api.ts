@@ -67,9 +67,11 @@ async function register(
     signal: AbortSignal.timeout(30_000),
   });
 }
+// payload may be async (for example to merge a partial update into current data) but must be
+// deterministic: Go binds the approved action to the exact body the tool sends later.
 export function approval<T extends Record<string, unknown>>(
   operation: (input: T) => string,
-  payload: (input: T) => unknown = (input) => input,
+  payload: (input: T, ctx: ApprovalContext) => unknown | Promise<unknown> = (input) => input,
 ): Approval<T> {
   return {
     async request(ctx) {
@@ -78,7 +80,7 @@ export function approval<T extends Record<string, unknown>>(
       const action = await register(
         ctx as ApprovalContext,
         operation(ctx.toolInput as T),
-        payload(ctx.toolInput as T),
+        await payload(ctx.toolInput as T, ctx as ApprovalContext),
       );
       if (action.approvalStatus === "rejected") return "denied";
       return action.approvalStatus === "pending" ? "user-approval" : "approved";
@@ -121,10 +123,19 @@ export function approval<T extends Record<string, unknown>>(
     },
   };
 }
-type Methods = "get" | "post" | "patch";
+type Methods = "get" | "post" | "patch" | "delete";
 export type Body<O> = O extends { requestBody: { content: { "application/json": infer B } } }
   ? B
   : never;
+// Reads the current settings for a merge. Used before a write is registered, so it
+// is not an agent action of its own (the write's action carries the full audit trail).
+export async function readSettings(ctx: Pick<ToolContext, "session"> | ApprovalContext) {
+  return request("/v1/settings", "get", {
+    baseURL: serverEnv().API_BASE_URL,
+    headers: await agentHeaders(ctx),
+    signal: AbortSignal.timeout(15_000),
+  });
+}
 export async function call<P extends keyof paths, M extends Methods & keyof paths[P]>(
   ctx: Pick<ToolContext, "session" | "callId" | "abortSignal">,
   path: P,

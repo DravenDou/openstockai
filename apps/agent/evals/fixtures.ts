@@ -6,14 +6,25 @@ export const headers = (t: Context) => ({
   Cookie: t.context.owner.cookie,
   Origin: t.context.base,
 });
-export const prompt = (t: Context, scenario: string, real: string, payload?: object) =>
-  t.context.provider === "controlled"
-    ? `VALIDATION:${scenario}${payload ? ` PAYLOAD:${JSON.stringify(payload)}` : ""} ${real}`
-    : real;
+export function sku(t: Context, value: string) {
+  const found = t.context.products.find((row) => row.sku === value);
+  assert(found, `Fixture product ${value} is missing`);
+  return found;
+}
+export function named<T extends { id: string; name: string }>(rows: T[], name: string) {
+  const found = rows.find((row) => row.name === name);
+  assert(found, `Fixture row "${name}" is missing`);
+  return found;
+}
+// Reads go through the same authenticated Next proxy the web app uses.
 export async function backend(t: Context, path: string, method = "GET", body?: unknown) {
   const response = await fetch(`${t.context.base}/api/backend/${path}`, {
     method,
-    headers: { ...headers(t), "Content-Type": "application/json" },
+    headers: {
+      ...headers(t),
+      "Content-Type": "application/json",
+      ...(method === "GET" ? {} : { "Idempotency-Key": crypto.randomUUID() }),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   assert(response.ok, `Fixture endpoint ${path} failed: HTTP ${response.status}`);
@@ -21,11 +32,6 @@ export async function backend(t: Context, path: string, method = "GET", body?: u
 }
 export async function report(t: Context, sessionId: string, started: number) {
   t.log(
-    JSON.stringify({
-      provider: t.context.provider,
-      date: new Date().toISOString(),
-      sessionId,
-      durationMs: Date.now() - started,
-    }),
+    JSON.stringify({ date: new Date().toISOString(), sessionId, durationMs: Date.now() - started }),
   );
 }

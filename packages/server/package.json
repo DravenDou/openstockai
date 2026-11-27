@@ -5,18 +5,21 @@
   "exports": {
     "./env": "./src/env.ts",
     "./http": "./src/http.ts",
+    "./ai/config": "./src/ai/config.ts",
     "./ai/model": "./src/ai/model.ts",
+    "./ai/runs": "./src/ai/runs.ts",
     "./ai/errors": "./src/ai/errors.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:config": "tsx --test tests/config.test.ts"
+    "test:config": "tsx --test tests/config.test.ts tests/provider.test.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.72",
     "@ai-sdk/openai": "4.0.84",
+    "@openstockai/api-client": "workspace:*",
     "ai": "7.0.128",
-    "zod": "4.6.6",
-    "@openstockai/api-client": "workspace:*"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

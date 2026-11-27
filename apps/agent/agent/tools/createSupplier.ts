@@ -3,7 +3,8 @@ import { z } from "zod";
 import { approval } from "../lib/api";
 import { write } from "../lib/write";
 export default defineWorkflowTool({
-  description: "Crea un proveedor con nombre y correo opcional.",
+  description:
+    "Create a supplier with a name and optional email. Search suppliers first to avoid duplicates.",
   inputSchema: z
     .object({ name: z.string().trim().min(1).max(120), email: z.email().optional() })
     .strict(),

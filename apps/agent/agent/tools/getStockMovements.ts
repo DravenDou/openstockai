@@ -6,7 +6,7 @@ import { pageResult } from "../lib/results";
 import { modelPage } from "../lib/model-output";
 export default defineTool({
   description:
-    "Consulta movimientos filtrados por producto, almacén, tipo y fecha de inicio RFC3339; pagina hasta hasMore=false.",
+    "List stock movements filtered by product, warehouse, kind and an RFC 3339 start date; page until hasMore=false.",
   inputSchema: query
     .extend(page.shape)
     .extend({

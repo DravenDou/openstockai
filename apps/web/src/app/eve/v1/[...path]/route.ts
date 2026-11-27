@@ -2,6 +2,7 @@ import { z } from "zod";
 import { goHeaders } from "@/server/http";
 import { apiFailure, boundedBody, checkOrigin, HTTPError } from "@openstockai/server/http";
 import { serverEnv } from "@openstockai/server/env";
+import { llmConfigProblem } from "@openstockai/server/ai/config";
 export const runtime = "nodejs";
 export const maxDuration = 75;
 async function handle(request: Request, context: { params: Promise<{ path: string[] }> }) {
@@ -9,12 +10,9 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
     checkOrigin(request);
     const env = serverEnv();
     const headers = await goHeaders(request.headers, true);
-    if (!process.env.DEEPINFRA_API_KEY)
-      throw new HTTPError(
-        503,
-        "AI_NOT_CONFIGURED",
-        "Set DEEPINFRA_API_KEY to enable the assistant.",
-      );
+    const problem = llmConfigProblem();
+    if (problem)
+      throw new HTTPError(503, "AI_NOT_CONFIGURED", `${problem} Update .env and restart the services.`);
     const { path } = await context.params;
     const create = path.length === 1 && path[0] === "session" && request.method === "POST";
     if (!create) {

@@ -6,7 +6,7 @@ import { pageResult } from "../lib/results";
 
 export default defineTool({
   description:
-    "Busca nombres e IDs reales de almacenes. Reutiliza el catálogo durante este turno; refresh fuerza una lectura nueva.",
+    "Look up real warehouse names and IDs. The catalog is reused within a turn; refresh forces a new read.",
   inputSchema: query
     .extend(page.shape)
     .extend({ refresh: z.boolean().default(false) })

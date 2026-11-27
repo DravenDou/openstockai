@@ -1,22 +1,22 @@
 import { defineEval } from "eve/evals";
 import type config from "./evals.config";
-import { headers, prompt, report } from "./fixtures";
+import { headers, report } from "./fixtures";
 export default defineEval<typeof config>({
-  description: "Producto y almacén ambiguos requieren aclaración sin modificar stock.",
+  description: "An ambiguous product and warehouse lead to a clarifying question, not a guess.",
   async test(t) {
     const started = Date.now();
-    const turn = await t.send(
-      prompt(
-        t,
-        "ambiguous",
-        "Agrega 10 Agua Fixture al almacén Norte. Hay variantes y almacenes de nombres similares: aclara cuáles, no adivines.",
-      ),
-      { headers: headers(t) },
-    );
+    const turn = await t.send("Add 10 bottles of Water 500ml to the North warehouse.", {
+      headers: headers(t),
+    });
     turn.calledTool("searchProducts");
-    t.notCalledTool("adjustStock");
-    t.notCalledTool("createProduct");
-    t.notCalledTool("transferStock");
+    for (const tool of [
+      "adjustStock",
+      "recordPurchase",
+      "createProduct",
+      "transferStock",
+      "countStock",
+    ])
+      t.notCalledTool(tool);
     turn.messageIncludes("?");
     t.succeeded();
     await report(t, turn.sessionId, started);

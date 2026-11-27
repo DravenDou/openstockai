@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3017",
     "typecheck": "tsc --noEmit",
-    "test:assistant": "tsx --test tests/assistant-ui.test.ts && node --test tests/chat-render.test.mjs",
+    "test:assistant": "tsx --test tests/assistant-ui.test.ts tests/approval-summary.test.ts && node --test tests/chat-render.test.mjs",
     "test:store": "tsx --test tests/store.test.ts",
     "test:contract": "tsx --test tests/contract.test.ts"
   },

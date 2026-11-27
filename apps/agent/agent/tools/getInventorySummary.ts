@@ -4,7 +4,7 @@ import { call } from "../lib/api";
 
 export default defineTool({
   description:
-    "Totales globales actuales: productos, stock bajo, agotados y valor exacto, calculados por Go en una lectura. No admite filtros.",
+    "Current global totals: products, low stock, out of stock and exact stock value, computed by the API in one read. No filters.",
   inputSchema: z.object({}).strict(),
   execute: (_input, ctx) => call(ctx, "/v1/inventory/summary", "get", undefined),
 });

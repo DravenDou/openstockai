@@ -1,7 +1,9 @@
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { APICallError, wrapLanguageModel, type LanguageModelMiddleware } from "ai";
 import { APIError } from "@openstockai/api-client/client";
 import { aiError } from "./errors";
+import { LlmConfigError, llmConfig, type LlmConfig } from "./config";
 
 export type ModelContext = {
   allowedToolNames?: readonly string[];
@@ -135,20 +137,38 @@ export function limitsMiddleware(ctx: ModelContext = {}): LanguageModelMiddlewar
   };
 }
 
-// The generic provider layer (OpenAI-compatible, Anthropic, Ollama) arrives in a later milestone.
-export function deepInfraModel(ctx: ModelContext = {}) {
-  if (!process.env.DEEPINFRA_API_KEY?.trim())
-    throw new APIError(
-      "AI_NOT_CONFIGURED",
-      "Set DEEPINFRA_API_KEY in .env and restart the services.",
-      503,
-    );
+export function createLanguageModel(config: LlmConfig) {
+  if (config.provider === "anthropic")
+    return createAnthropic({ apiKey: config.apiKey, baseURL: config.baseURL })(config.model);
+  // OpenAI-compatible and Ollama both speak Chat Completions, which every gateway
+  // (DeepInfra, OpenRouter, OpenAI, vLLM, LM Studio, Ollama) supports.
+  return createOpenAI({
+    // Local endpoints may run without a key; the SDK still needs a non-empty value.
+    apiKey: config.apiKey || "not-needed",
+    baseURL: config.baseURL,
+    name: config.provider,
+  }).chat(config.model);
+}
+
+// The model used by the agent: the configured provider wrapped with the per-call limits.
+export function llmModel(
+  ctx: ModelContext = {},
+  env: Record<string, string | undefined> = process.env,
+) {
+  let config: LlmConfig;
+  try {
+    config = llmConfig(env);
+  } catch (error) {
+    if (error instanceof LlmConfigError)
+      throw new APIError(
+        "AI_NOT_CONFIGURED",
+        `${error.message} Update .env and restart the services.`,
+        503,
+      );
+    throw error;
+  }
   return wrapLanguageModel({
-    model: createOpenAI({
-      apiKey: process.env.DEEPINFRA_API_KEY,
-      baseURL: "https://api.deepinfra.com/v1/openai",
-      name: "deepinfra",
-    }).chat(process.env.AI_MODEL || "deepseek-ai/DeepSeek-V4-Flash-0731"),
+    model: createLanguageModel(config),
     middleware: limitsMiddleware(ctx),
   });
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineAgent, defineDynamic } from "eve";
 import { principal } from "./lib/api";
-import { deepInfraModel, inputTokenLimit, stepLimit } from "@openstockai/server/ai/model";
+import { llmModel, inputTokenLimit, stepLimit } from "@openstockai/server/ai/model";
 import { APIError } from "@openstockai/api-client/client";
 import { availableTools } from "./lib/tool-selection";
 
@@ -25,7 +25,7 @@ export default defineAgent({
             422,
           );
         return {
-          model: deepInfraModel({
+          model: llmModel({
             allowedToolNames: availableTools(ctx.session, turn.turnId),
           }),
           modelContextWindowTokens: inputTokenLimit(),

@@ -4,7 +4,7 @@ import { approval } from "../lib/api";
 import { write } from "../lib/write";
 export default defineWorkflowTool({
   description:
-    "Crea un producto con SKU y precios decimales. Stock inicial opcional con almacén real.",
+    "Create a product with SKU and decimal prices. Optional initial stock needs a real warehouse ID; categoryName creates or reuses a category.",
   inputSchema: product,
   approval: approval(() => "POST /v1/products"),
   async execute(input, ctx) {

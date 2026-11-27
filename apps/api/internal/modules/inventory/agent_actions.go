@@ -27,6 +27,8 @@ var staticOperations = map[string]bool{
 	"GET /v1/identity": true, "GET /v1/inventory/summary": true, "GET /v1/units": true, "GET /v1/products": true,
 	"GET /v1/categories": true, "GET /v1/warehouses": true, "GET /v1/inventory": true, "GET /v1/stock-movements": true,
 	"GET /v1/suppliers": true, "GET /v1/low-stock": true,
+	"GET /v1/products/by-sku": true, "GET /v1/purchases-page": true, "GET /v1/audit-page": true, "GET /v1/settings": true,
+	"GET /v1/analytics/stock-valuation": true, "GET /v1/analytics/turnover": true, "GET /v1/analytics/supplier-spend": true,
 	"POST /v1/products": true, "POST /v1/categories": true, "POST /v1/warehouses": true, "POST /v1/suppliers": true,
 	"POST /v1/units": true, "POST /v1/purchases": true, "POST /v1/inventory/adjustments": true,
 	"POST /v1/inventory/transfers": true, "POST /v1/inventory/counts": true, "PATCH /v1/settings": true,
@@ -63,6 +65,8 @@ func validOperation(operation string) bool {
 	}
 	switch {
 	case method == "GET" && resource == "products" && action == "":
+		return true
+	case method == "GET" && resource == "purchases" && action == "":
 		return true
 	case method == "PATCH" && (resource == "products" || isLookup(resource)) && action == "":
 		return true

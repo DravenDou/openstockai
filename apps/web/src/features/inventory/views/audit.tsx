@@ -8,6 +8,13 @@ import { QueryState } from "../../../shared/components/query-state";
 import { EmptyState, PageHeading, SearchInput } from "../../../shared/components/shared";
 import { HistoryNavigation } from "@/shared/components/history-navigation";
 
+// MCP rows carry the OAuth client id in their metadata; it is the client's own identifier.
+function mcpClientId(entry: Schemas["AuditEntry"]) {
+  const metadata = entry.metadata as { clientId?: unknown } | null;
+  return entry.actor_type === "mcp" && typeof metadata?.clientId === "string"
+    ? metadata.clientId.slice(0, 200)
+    : "";
+}
 export function AuditView() {
   const { settings, identity } = useInventory();
   const [search, setSearch] = useState("");
@@ -28,7 +35,7 @@ export function AuditView() {
     <>
       <PageHeading
         title="Audit log"
-        description="Immutable record of changes made by you and the assistant."
+        description="Immutable record of changes made by you, the assistant and connected MCP clients."
       />
       <section className="rounded-xl border p-5">
         <div className="mb-5 flex flex-wrap gap-3">
@@ -52,6 +59,7 @@ export function AuditView() {
             <option value="">All sources</option>
             <option value="human">Users</option>
             <option value="ai">Assistant</option>
+            <option value="mcp">MCP clients</option>
             <option value="system">System</option>
           </select>
         </div>
@@ -63,7 +71,8 @@ export function AuditView() {
               <summary className="cursor-pointer text-sm">
                 <span className="font-medium">{entry.action}</span>
                 <span className="mt-2 block text-xs text-muted-foreground">
-                  {actorLabel(entry.actor_type, identity)} ·{" "}
+                  {actorLabel(entry.actor_type, identity)}
+                  {mcpClientId(entry) ? ` (${mcpClientId(entry)})` : ""} ·{" "}
                   {new Date(entry.created_at).toLocaleString("en-US", {
                     timeZone: settings.timezone,
                   })}

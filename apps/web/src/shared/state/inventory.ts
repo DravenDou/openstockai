@@ -125,6 +125,7 @@ export function actorLabel(
   identity?: { name?: string | null } | null,
 ): string {
   if (actorType === "ai") return "OpenStock AI";
+  if (actorType === "mcp") return "MCP client";
   if (actorType === "system") return "System";
   return identity?.name?.trim() || "Owner";
 }

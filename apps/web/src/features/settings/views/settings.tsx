@@ -8,6 +8,7 @@ import { inventoryActions, useInventory } from "@/shared/state/store";
 import { Check, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { ConnectedApps } from "../components/connected-apps";
 import { ActionLink, Choice, PageHeading, PanelTitle } from "../../../shared/components/shared";
 
 export function SettingsView() {
@@ -111,6 +112,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
             { value: "general", label: "General" },
             { value: "ai", label: "AI assistant" },
             { value: "notifications", label: "Notifications" },
+            { value: "apps", label: "Connected apps" },
           ].map((item) => (
             <TabsTrigger
               key={item.value}
@@ -183,6 +185,9 @@ function SettingsForm({ initial }: { initial: Settings }) {
         </TabsContent>
         <TabsContent value="ai">
           <div className="max-w-2xl">{assistantPanel}</div>
+        </TabsContent>
+        <TabsContent value="apps">
+          <ConnectedApps />
         </TabsContent>
         <TabsContent value="notifications">
           <section className="max-w-2xl space-y-6 rounded-xl border p-6">

@@ -1,12 +1,13 @@
 # AI assistant
 
-A deep dive into how the assistant works: what it can do, how writes are approved, how the prompt and tool results are shaped, and how it is tested. For the overall system see [ARCHITECTURE.md](ARCHITECTURE.md); for a short summary see the [README](../README.md#design-points).
+A deep dive into how the assistant works: what it can do, how writes are approved, how the prompt and tool results are shaped, and how it is tested. It also covers the MCP server, which exposes the same operations and approval flow to external MCP clients. For the overall system see [ARCHITECTURE.md](ARCHITECTURE.md); for a short summary see the [README](../README.md#design-points).
 
 - [Design rules](#design-rules)
 - [Runtime](#runtime)
 - [Tool catalog](#tool-catalog)
 - [Progressive tool selection](#progressive-tool-selection)
 - [Approval lifecycle](#approval-lifecycle)
+- [MCP server](#mcp-server)
 - [Provider layer](#provider-layer)
 - [Prompt design](#prompt-design)
 - [Token and cost controls](#token-and-cost-controls)
@@ -149,6 +150,72 @@ If the owner rejects, Eve denies the tool call (`TOOL_EXECUTION_DENIED`). A read
 
 Two properties follow from this design: the model cannot approve its own action (approval needs a human-actor token), and the owner approves what will actually run (the payload is bound by hash, not re-supplied).
 
+## MCP server
+
+`apps/mcp` exposes the inventory to external MCP clients (Claude Code, or any client on protocol revision 2026-07-28 or 2025-11-25). It is not a second agent: there is no model and no prompt on the server side. It is a curated tool surface over the same Go API and the same `agent_actions` approval flow, where the client's model is the caller. Identity, OAuth and deployment are in [ARCHITECTURE.md](ARCHITECTURE.md#mcp-server).
+
+### Surface
+
+17 tools, registered in a fixed order so `tools/list` is deterministic. Inputs come from `@openstockai/schemas`, the same strict Zod schemas the Eve agent uses, so the two surfaces cannot drift. Every tool sets `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false`, and returns `structuredContent` with an `outputSchema`.
+
+| Tool                                                                                                                         | Go endpoint                                                               | Approval                                     |
+| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------- |
+| `search_products`, `get_product`, `list_low_stock`, `get_stock_movements`, `list_purchases`, `get_purchase`, `get_audit_log` | products, by-sku, inventory, low-stock, stock-movements, purchases, audit | none (reads)                                 |
+| `get_report` (`summary`, `valuation`, `turnover`, `supplier_spend`, `dashboard`)                                             | `/v1/inventory/summary`, `/v1/analytics/*`                                | none                                         |
+| `list_reference_data` (`warehouses`, `categories`, `suppliers`, `units`)                                                     | lookup lists                                                              | none                                         |
+| `adjust_stock`, `transfer_stock`, `record_stock_count`, `record_purchase`                                                    | `/v1/inventory/adjustments`, `transfers`, `counts`, `/v1/purchases`       | client; owner above 1000 units               |
+| `create_product`, `update_product`                                                                                           | `POST /v1/products`, `PATCH /v1/products/{id}`                            | client; owner above 1000 units initial stock |
+| `archive_product`, `restore_product` (`destructiveHint`)                                                                     | `DELETE /v1/products/{id}`, `POST /v1/products/{id}/restore`              | always the owner                             |
+
+"Client" means the user confirms in their MCP client; "owner" means the owner approves in OpenStock. With auto-approval on, low-risk writes need neither, exactly as for the agent. Deliberately not exposed: settings (an external client must not be able to turn auto-approval on), editing or deleting warehouses, categories, suppliers and units, and the CSV export (it returns a link that needs a browser session).
+
+Resources carry cache hints and are `private` (they depend on the caller's data). Lists stop at 50 entries and say so (`truncated`), so a model never mistakes a cut list for the whole one:
+
+| URI                         | Contents                                                                                                | TTL  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- | ---- |
+| `openstock://reference`     | Warehouses, categories, suppliers and units                                                             | 60 s |
+| `openstock://low-stock`     | Products below their minimum                                                                            | 30 s |
+| `openstock://products/{id}` | One product with stock per warehouse (template; `resources/list` enumerates at most 50 active products) | 15 s |
+
+Skills over MCP (the `io.modelcontextprotocol/skills` extension, loaded from `apps/mcp/skills` with the SDK's `loadSkills` and attached before the server connects) package three workflows as `SKILL.md` files: `restock-review` (low stock, turnover and supplier spend into a purchase plan; it never records purchases), `receive-delivery` (match a delivery note by SKU, create unknown products, record one purchase) and `cycle-count` (record counts per warehouse and explain variances). A client that supports the extension lists them with `skills/list` and reads them with `resources/read` on `skill://` URIs; Claude Code shows them as `openstock:<skill>`.
+
+### Approvals over MRTR
+
+Revision 2026-07-28 removed server-initiated requests: a server can no longer send `elicitation/create` in the middle of a tool call. Instead a tool returns `resultType: "input_required"` with `inputRequests`, and the client retries the same call with `inputResponses` (Multi Round-Trip Requests). Any state the server needs between rounds travels in `requestState`, which the client echoes back byte for byte. The write tools map the approval lifecycle onto that:
+
+```mermaid
+sequenceDiagram
+  participant C as MCP client
+  participant M as apps/mcp
+  participant G as Go
+  participant O as Owner (OpenStock)
+  C->>M: tools/call adjust_stock
+  M->>G: POST /v1/agent-actions (operation, exact body)
+  G-->>M: pending, ownerApprovalRequired
+  alt low risk
+    M-->>C: input_required: form {approve: boolean}
+    C->>M: retry + inputResponses + requestState
+    M->>G: POST /v1/agent-actions/{id}/approval (as mcp)
+  else high risk or destructive
+    M-->>C: input_required: URL /approvals/{id}
+    O->>G: approve in the web app (owner session)
+    C->>M: retry + inputResponses + requestState
+  end
+  M->>G: POST /v1/inventory/adjustments (Idempotency-Key = X-Agent-Action-ID = id)
+  G-->>M: applied, audit row with actor mcp
+  M-->>C: result {status: "applied"}
+```
+
+1. **Register.** The tool validates the arguments, builds the Go body deterministically and registers the action with a new UUID, exactly as the agent does. Go answers `not_required` (auto-approval on and low risk: the tool executes at once) or `pending`, plus `ownerApprovalRequired`, which Go computes from `isHighRisk` and `isDestructive`. The MCP server never decides risk.
+2. **Ask in the client (form mode).** For a low-risk write the tool returns a form elicitation `{approve: boolean}` with a one-line summary that names the product and warehouse. On the retry, an accepted `approve: true` makes the MCP server approve the action as the `mcp` actor, which Go allows only for that client's own actions and only when they are neither high risk nor destructive (`OWNER_APPROVAL_REQUIRED` otherwise, and the tool then switches to the owner path). Anything else rejects the action and returns `declined_in_client`.
+3. **Ask the owner (URL mode).** For a high-risk or destructive write the tool returns a URL elicitation pointing to `/approvals/<id>` in OpenStock. The page needs the owner's session, changes nothing on load, shows the operation, its details, why the owner must decide and the client's (unverified) name, and records the decision with an explicit POST behind the app's origin check. Accepting the elicitation only means the user went through the link: on the retry the tool tries the mutation, and Go answers whether it was approved (`applied`), is still pending (another `input_required`, "still waiting"), or was rejected (`rejected_by_owner`). Declining or cancelling rejects the action.
+
+If the owner already decided in OpenStock when the client answers (Go returns `ACTION_NOT_PENDING`), the tool reads the action and follows the owner's decision: approved is executed, rejected is reported, completed is reported as already applied. Registration executes at once only on `not_required`; any status other than `pending` or `rejected` is a tool error with nothing applied. 4. **Execute.** Identical to the agent: the action ID is both `X-Agent-Action-ID` and the `Idempotency-Key`, and Go re-checks actor, client, operation, body hash and policy inside the mutation transaction.
+
+`requestState` is attacker-controlled input under the spec. It is signed with HMAC-SHA256 (the SDK's `createRequestStateCodec`, key `MCP_STATE_SECRET`), expires after ten minutes and is bound to the method and OAuth client; the payload also carries the user, the tool and a SHA-256 digest of the canonical arguments, and the handler rejects a retry whose current arguments differ. It holds only identifiers, since the codec signs but does not encrypt. Single use does not depend on it: Go moves an action from `pending` to `approved` once and executes an idempotency key once.
+
+The split follows from who the client is. A form answer comes from software the owner does not control (Claude Code, for example, can answer elicitations with a hook and no dialog), so it is accepted only where a mistake is cheap and reversible. Destructive and large changes need a decision made in OpenStock, under the owner's own session, which the client cannot produce.
+
 ## Provider layer
 
 `packages/server/src/ai` resolves the model from environment variables (`config.ts`, `model.ts`) and wraps it with `limitsMiddleware`. The agent depends on the AI SDK's `LanguageModel` interface, not on a vendor.
@@ -267,6 +334,8 @@ Unit tests (`pnpm test:agent`) cover the parts that do not need a model: that to
 - **A deliberately conservative input estimate.** The input limit uses UTF-8 bytes plus 1 KiB instead of a tokenizer, because providers differ and the check must not depend on one vendor's tokenizer. It over-counts ordinary text, so it can reject a call the provider would accept.
 - **Bytes as the gate for TOON.** TOON is used only when it is at least 10% smaller in bytes. This is a cheap proxy, not a token measurement, and the repository ships no token benchmark.
 - **Session budgets count new input only.** `sessionBudgetReached` uses `inputTokens - cacheReadTokens`. Eve's `inputTokens` includes prompt-cache reads, which dominate a long chat, so counting them would pause conversations that are cheap.
+- **A curated MCP surface instead of the 39 agent tools.** External clients load every tool description up front and cannot use progressive selection, so the MCP server offers 17 coarser tools (`get_report` and `list_reference_data` take an enum) and leaves settings and destructive catalog edits to the UI. Schemas are shared, not copied, so a validation change reaches both surfaces. The cost is two tool layers to keep aligned with the Go routes.
+- **Hybrid approval for MCP writes.** Approving everything in the client would let any client configuration approve an archive; sending every write to the browser would make small corrections tedious. The split is decided by Go (`ownerApprovalRequired`), so the same policy governs the agent and MCP. The cost is that the owner flow depends on the client offering a manual retry after the URL elicitation.
 - **Evals assert behavior.** Tool calls, approval payloads and read-back state are checked; wording is not. This keeps them usable across models, at the cost of not catching poor phrasing.
 
 ## Known limitations
@@ -277,6 +346,7 @@ Unit tests (`pnpm test:agent`) cover the parts that do not need a model: that to
 - **No token benchmark.** The effect of tool selection and TOON on tokens is argued from design, and can be measured with the evals and the Agent runs page.
 - **Eval results vary by model.** A failure can be a model weakness rather than a bug, and the evals cost tokens.
 - **Stored conversations are tied to the Eve version.** A conversation created under an incompatible Eve protocol may not resume; start a new one. Go's `agent_actions` history is unaffected.
+- **The MCP approval link outlives the signed state.** `requestState` expires after ten minutes; an action still pending after that stays pending in Go (visible in the audit trail) and the client has to start the call again, which registers a new action.
 - **The agent service is trusted.** It holds the shared secret and relays the owner's approval (see [ARCHITECTURE.md](ARCHITECTURE.md#known-limitations)).
 
 ## Adding a tool
@@ -286,10 +356,11 @@ Example: a new write tool `renameThing`.
 1. **Go endpoint.** Add the SQL to `apps/api/db/queries`, the service method to `modules/inventory` and the route to `transport/http/routes.go`. Run writes through `Service.Mutate` so they get idempotency, audit and the approval check. Describe the route in `apps/api/openapi.json`.
 2. **Register the operation.** In `modules/inventory/agent_actions.go`, add the operation to `staticOperations` (fixed paths) or `validOperation` (paths with an ID). If it deletes, archives or restores something, `isDestructive` must classify it so it is always confirmed. If a quantity can be large, add its field to `isHighRisk` in `approval.go`, which is the single check used at registration and at execution, and add a case to `TestIsHighRisk`.
 3. **Generate code.** Run `pnpm db:generate` and `pnpm api:generate`. Never edit generated files.
-4. **Input schema.** Add a strict Zod schema to `apps/agent/agent/lib/schemas.ts` (or inline for tiny ones). Use `.strict()`, bounded strings and numbers, and `z.uuid()` for IDs.
+4. **Input schema.** Add a strict Zod schema to `packages/schemas/src/index.ts` (shared with the MCP server) (or inline for tiny ones). Use `.strict()`, bounded strings and numbers, and `z.uuid()` for IDs.
 5. **Tool file.** Create `apps/agent/agent/tools/renameThing.ts`. For a read use `defineTool` and `call(ctx, path, "get", ...)`. For a write use `defineWorkflowTool` with `approval(operationFn, payloadFn)` and `"use workflow"` calling `write(ctx, path, method, body, { id })`. The operation string must match the route Go sees, with the real ID, for example `PATCH /v1/things/${input.id}`, and the approval payload must be exactly the body `write` sends. Write a description that states when to use the tool and any approval rule.
 6. **Select it.** Add the tool name to exactly one group in `lib/tool-selection.ts` (or to `coreTools` for something nearly every turn needs). A new group also needs an entry in `groupDescriptions` and a line in `instructions.md`.
 7. **Keep results small.** For a list, return `pageResult(...)` and project rows with a `toModelOutput` using `modelPage`. Do not return large blobs; return a link, as `exportProductsCsv` does.
 8. **Update the UI approval card** summary in `apps/web/src/features/assistant/lib/approval-summary.ts` so the owner sees a readable description of the change.
 9. **Test.** Add cases to `apps/agent/tests/tools.test.ts` (strictness, operation string and body) and an eval `apps/agent/evals/<name>.eval.ts` that asserts the tool call and reads the result back through the API.
-10. **Verify.** `pnpm typecheck`, `pnpm lint`, `pnpm test:architecture`, `pnpm test:go`, `pnpm test:agent`, `pnpm format:check`, then `pnpm agent:eval` for the new eval. Update the catalog table above.
+10. **Expose it over MCP (optional).** Add it to `apps/mcp/src/reads.ts` or `writes.ts` with a `title`, annotations and an `outputSchema`, and a case in `apps/mcp/tests/tools.test.ts`. A write needs its Go `operation` and exact `body` (the same as the agent's) and a one-line `summary` for the approval prompt; a destructive operation must set `destructiveHint`. Update the MCP surface table.
+11. **Verify.** `pnpm typecheck`, `pnpm lint`, `pnpm test:architecture`, `pnpm test:go`, `pnpm test:agent`, `pnpm format:check`, then `pnpm agent:eval` for the new eval. Update the catalog table above.

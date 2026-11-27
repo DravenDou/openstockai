@@ -15,8 +15,9 @@ const sections = [
   "settings",
   "agent-runs",
   "consent",
+  "approvals",
 ];
-const withDetail = ["inventory", "purchases"];
+const withDetail = ["inventory", "purchases", "approvals"];
 
 export function isAppRoute(pathname: string): boolean {
   const path = pathname.split("/").filter(Boolean);

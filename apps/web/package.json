@@ -8,7 +8,7 @@
     "start": "next start --hostname 127.0.0.1 --port 3017",
     "typecheck": "tsc --noEmit",
     "test:assistant": "tsx --test tests/assistant-ui.test.ts tests/approval-summary.test.ts && node --test tests/chat-render.test.mjs",
-    "test:store": "tsx --test tests/store.test.ts tests/actor-label.test.ts",
+    "test:store": "tsx --test tests/store.test.ts tests/actor-label.test.ts tests/approvals.test.ts tests/agent-approval.test.ts tests/security-headers.test.ts tests/connected-apps.test.ts",
     "test:contract": "tsx --test tests/contract.test.ts tests/mcp-token.test.ts"
   },
   "dependencies": {

@@ -5,6 +5,7 @@ import { actorLabel } from "../src/shared/state/inventory";
 test("actorLabel maps every actor type to a fixed label", () => {
   assert.equal(actorLabel("ai", { name: "Ana" }), "OpenStock AI");
   assert.equal(actorLabel("system", { name: "Ana" }), "System");
+  assert.equal(actorLabel("mcp", { name: "Ana" }), "MCP client");
   assert.equal(actorLabel("human", { name: "Ana" }), "Ana");
 });
 

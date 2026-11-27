@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { checkService, apiFailure, HTTPError } from "@openstockai/server/http";
 import { authDatabase, getAuth } from "@/server/auth";
+import { assertAgentAction } from "@/server/agent-approval";
 import { serverEnv } from "@openstockai/server/env";
 export const runtime = "nodejs";
 const schema = z
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
     const { token } = await getAuth().api.signJWT({
       body: { payload: { sub: body.userId, sid: body.sessionId } },
     });
+    await assertAgentAction(serverEnv().API_BASE_URL, token, body.actionId);
     const res = await fetch(
       `${serverEnv().API_BASE_URL}/v1/agent-actions/${body.actionId}/approval`,
       {

@@ -1,6 +1,6 @@
 import { defineWorkflowTool } from "eve/tools";
 import { approval } from "../lib/api";
-import { stockCount } from "../lib/schemas";
+import { stockCount } from "@openstockai/schemas";
 import { write } from "../lib/write";
 export default defineWorkflowTool({
   description:

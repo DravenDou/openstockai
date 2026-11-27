@@ -8,6 +8,7 @@ const repo = resolve(".");
 const web = join(repo, "apps/web");
 const webSrc = join(web, "src");
 const agent = join(repo, "apps/agent");
+const mcp = join(repo, "apps/mcp");
 const packages = join(repo, "packages");
 const SKIP = new Set(["node_modules", ".next", ".eve", ".cache", ".output"]);
 
@@ -150,15 +151,40 @@ function workspaceViolations(root, forbidden) {
   return violations;
 }
 
-test("apps/agent never imports apps/web", () => {
+test("apps/agent never imports apps/web or apps/mcp", () => {
   assert.ok(sourceFiles(agent).length > 10, "The check must walk the real agent code");
-  assert.deepEqual(workspaceViolations(agent, { paths: [web], packages: ["web"] }), []);
+  assert.deepEqual(workspaceViolations(agent, { paths: [web, mcp], packages: ["web", "mcp"] }), []);
+});
+
+test("apps/mcp imports only packages, never another app", () => {
+  assert.ok(sourceFiles(mcp).length > 8, "The check must walk the real MCP code");
+  assert.deepEqual(
+    workspaceViolations(mcp, {
+      paths: [web, agent, join(repo, "apps/api")],
+      packages: ["web", "agent"],
+    }),
+    [],
+  );
+});
+
+test("packages/schemas is a leaf: no apps and no other workspace package", () => {
+  const schemas = join(packages, "schemas");
+  assert.ok(sourceFiles(schemas).length > 0, "The check must walk the real schemas code");
+  const workspace = [];
+  for (const path of sourceFiles(schemas))
+    for (const spec of specifiers(parse(path)))
+      if (workspaceName.test(spec) || spec.startsWith(".."))
+        workspace.push(`${relative(repo, path)} -> ${spec}`);
+  assert.deepEqual(workspace, []);
 });
 
 test("packages never import from apps", () => {
   assert.ok(sourceFiles(packages).length > 3, "The check must walk the real package code");
   assert.deepEqual(
-    workspaceViolations(packages, { paths: [join(repo, "apps")], packages: ["web", "agent"] }),
+    workspaceViolations(packages, {
+      paths: [join(repo, "apps")],
+      packages: ["web", "agent", "mcp"],
+    }),
     [],
   );
 });

@@ -53,6 +53,33 @@ export const adjustment = z
     reference: z.string().max(200).default(""),
   })
   .strict();
+// Catalog edit: every field optional and NO defaults, so an omitted field is never overwritten.
+export const productPatch = z
+  .object({
+    id: z.uuid(),
+    name: product.shape.name.optional(),
+    categoryId: z.uuid().optional(),
+    categoryName: z.string().max(120).optional(),
+    unitCode: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]{0,23}$/)
+      .optional(),
+    costPrice: money.optional(),
+    salePrice: money.optional(),
+    minimum: amount.nonnegative().optional(),
+    description: z.string().max(4000).optional(),
+    location: z.string().max(300).optional(),
+    barcode: z.string().max(100).optional(),
+  })
+  .strict();
+export const transfer = z
+  .object({
+    productId: z.uuid(),
+    fromWarehouseId: z.uuid(),
+    toWarehouseId: z.uuid(),
+    quantity: amount.positive(),
+  })
+  .strict();
 export const lookupName = z.string().trim().min(1).max(120);
 export const supplier = z
   .object({ name: lookupName, email: z.union([z.literal(""), z.email().max(254)]).optional() })

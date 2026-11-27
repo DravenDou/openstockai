@@ -1,7 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { call } from "../lib/api";
-import { page, query } from "../lib/schemas";
+import { page, query } from "@openstockai/schemas";
 import { pageResult } from "../lib/results";
 import { modelPage } from "../lib/model-output";
 export default defineTool({
@@ -13,17 +13,10 @@ export default defineTool({
       product: z.uuid().optional(),
       warehouse: z.uuid().optional(),
       kind: z
-        .enum([
-          "initial",
-          "purchase",
-          "sale",
-          "adjustment_in",
-          "adjustment_out",
-          "transfer_in",
-          "transfer_out",
-          "return_in",
-          "return_out",
-        ])
+        .enum(["in", "out", "adjustment", "return", "transfer"])
+        .describe(
+          "in: entries (positive quantity). out: exits (negative quantity). adjustment, return and transfer: movements of that type, both directions.",
+        )
         .optional(),
       since: z.iso.datetime({ offset: true }).optional(),
     })

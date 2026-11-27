@@ -4,7 +4,8 @@
 #   -f compose.yaml -f compose.dev.yaml   hot reload   run --rm reset-owner-password   owner reset
 # No secret lives in this file or in any image: the one-shot `init` service generates the
 # internal secrets once into the `secrets` volume and docker/entrypoint.sh loads them at start.
-# Startup order: init -> postgres (healthy) -> migrate -> provision -> api (healthy) -> web, agent.
+# Startup order: init -> postgres (healthy) -> migrate -> provision -> api (healthy) -> web, agent
+# -> mcp (after web is healthy).
 
 x-restart: &restart
   restart: unless-stopped
@@ -28,6 +29,9 @@ x-secrets-env: &secrets-env
   AGENT_SERVICE_SECRET: ${AGENT_SERVICE_SECRET:-}
 
 x-public-url: &public-url ${BETTER_AUTH_URL:-http://localhost:${WEB_PORT:-3000}}
+
+# The MCP resource identifier: the audience of every access token, also known to the web app.
+x-mcp-resource: &mcp-resource ${MCP_RESOURCE_URL:-http://localhost:${MCP_PORT:-3100}/mcp}
 
 x-llm-env: &llm-env
   LLM_PROVIDER: ${LLM_PROVIDER:-openai-compatible}
@@ -123,6 +127,9 @@ services:
       JWT_AUDIENCE: openstockai-api
       API_DB_MAX_CONNS: ${API_DB_MAX_CONNS:-8}
       API_ADDR: 0.0.0.0:8087
+      MCP_SERVICE_SECRET: ${MCP_SERVICE_SECRET:-}
+      # Only the web app and the MCP service need the others; the state key is MCP-only.
+      OPENSTOCK_SECRETS_SKIP: MCP_STATE_SECRET
     ports: ["127.0.0.1:${API_PORT:-8087}:8087"]
     networks:
       default: {gw_priority: 1}
@@ -155,6 +162,9 @@ services:
       API_BASE_URL: http://api:8087
       JWT_AUDIENCE: openstockai-api
       EVE_BASE_URL: http://agent:4273
+      MCP_RESOURCE_URL: *mcp-resource
+      MCP_SERVICE_SECRET: ${MCP_SERVICE_SECRET:-}
+      OPENSTOCK_SECRETS_SKIP: MCP_STATE_SECRET
     ports: ["127.0.0.1:${WEB_PORT:-3000}:3017"]
     networks:
       # LLM provider egress must use the app network, not the private DB bridge.
@@ -190,6 +200,8 @@ services:
       API_BASE_URL: http://api:8087
       JWT_AUDIENCE: openstockai-api
       EVE_BASE_URL: http://127.0.0.1:4273
+      # The agent has no business with the MCP secrets.
+      OPENSTOCK_SECRETS_SKIP: MCP_SERVICE_SECRET MCP_STATE_SECRET
     volumes:
       - eve_data:/app/apps/agent/.eve
       - secrets:/run/openstock-secrets:ro
@@ -199,6 +211,42 @@ services:
       api: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4273/eve/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+
+  # The MCP server (OAuth resource server). It verifies access tokens, exchanges them with the web
+  # app for a short-lived API token and calls the API; it has no database access. It receives only
+  # its own two secrets (the others are skipped at load).
+  mcp:
+    <<: [*restart, *hardening]
+    build: {context: ., target: mcp-production}
+    entrypoint: ["/bin/sh", "/openstock/entrypoint.sh"]
+    command: ["node", "--import", "tsx", "src/main.ts"]
+    environment:
+      NODE_ENV: production
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 3100
+      # Host names the server answers to (DNS rebinding protection). Add your public host name
+      # when you publish it behind a reverse proxy.
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      MCP_RESOURCE_URL: *mcp-resource
+      BETTER_AUTH_URL: *public-url
+      APP_PUBLIC_URL: *public-url
+      AUTH_INTERNAL_URL: http://web:3017
+      API_BASE_URL: http://api:8087
+      MCP_SERVICE_SECRET: ${MCP_SERVICE_SECRET:-}
+      MCP_STATE_SECRET: ${MCP_STATE_SECRET:-}
+      OPENSTOCK_SECRETS_SKIP: POSTGRES_PASSWORD API_DATABASE_PASSWORD AUTH_DATABASE_PASSWORD BETTER_AUTH_SECRET AGENT_SERVICE_SECRET
+    ports: ["127.0.0.1:${MCP_PORT:-3100}:3100"]
+    volumes: *secrets-volumes
+    stop_grace_period: 15s
+    depends_on:
+      api: {condition: service_healthy}
+      web: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       start_period: 20s

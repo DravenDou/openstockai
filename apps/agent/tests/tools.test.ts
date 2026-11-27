@@ -6,7 +6,7 @@ import type { ToolContext, WorkflowToolContext } from "eve/tools";
 import { z } from "zod";
 import { catalogCache } from "../agent/lib/catalog-cache";
 import { coreTools, toolGroupNames, toolGroups } from "../agent/lib/tool-selection";
-import { lookupName, purchase, settingsPatch, stockCount, unit } from "../agent/lib/schemas";
+import { lookupName, purchase, settingsPatch, stockCount, unit } from "@openstockai/schemas";
 import { mergeSettings } from "../agent/lib/settings";
 import { exportLink } from "../agent/lib/export";
 import archiveProduct from "../agent/tools/archiveProduct";
@@ -97,7 +97,11 @@ function mockAPI(
         });
       if (url.pathname === "/api/internal/agent-token") return reply({ token: "verified-token" });
       if (url.pathname === "/v1/agent-actions")
-        return reply({ id: body.id, approvalStatus: options.approval ?? "not_required" });
+        return reply({
+          id: body.id,
+          approvalStatus: options.approval ?? "not_required",
+          ownerApprovalRequired: false,
+        });
       if (url.pathname.startsWith("/v1/agent-actions/")) return reply({ ok: true });
       if (url.pathname === "/v1/settings" && method === "GET") return reply(options.settings);
       if (url.pathname === "/v1/settings") return reply(body);

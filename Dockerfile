@@ -18,7 +18,9 @@ FROM bootstrap AS development
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --chown=node:node apps/web/package.json ./apps/web/package.json
 COPY --chown=node:node apps/agent/package.json ./apps/agent/package.json
+COPY --chown=node:node apps/mcp/package.json ./apps/mcp/package.json
 COPY --chown=node:node packages/api-client/package.json ./packages/api-client/package.json
+COPY --chown=node:node packages/schemas/package.json ./packages/schemas/package.json
 COPY --chown=node:node packages/server/package.json ./packages/server/package.json
 RUN pnpm install --frozen-lockfile
 COPY --chown=node:node . .
@@ -71,6 +73,18 @@ COPY --from=agent-build --chown=node:node /app/apps/agent/.output ./.output
 RUN EVE_TELEMETRY_DISABLED=1 node "$EVE_CLI_PATH" traces list --json | grep -q '^\[\]$'
 EXPOSE 4273
 CMD ["node", ".output/server/index.mjs"]
+
+# The MCP server is TypeScript run by tsx (a runtime dependency of the package), like the
+# workspace packages it uses. `deploy --prod` keeps only its production closure.
+FROM development AS mcp-deploy
+RUN pnpm --filter @openstockai/mcp deploy --prod --legacy /tmp/mcp
+
+FROM bootstrap AS mcp-production
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=mcp-deploy --chown=node:node /tmp/mcp ./
+EXPOSE 3100
+CMD ["node", "--import", "tsx", "src/main.ts"]
 
 # Owner password reset: the script and its two dependencies only (`reset-owner-password`).
 FROM bootstrap AS owner-tools

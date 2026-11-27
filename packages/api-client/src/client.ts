@@ -28,6 +28,8 @@ export async function request<P extends keyof paths, M extends Methods & keyof p
     key?: string;
     query?: Record<string, string | number>;
     signal?: AbortSignal;
+    // Injected transport for server-side callers and tests; defaults to the global fetch.
+    fetch?: typeof fetch;
   } = {},
 ): Promise<Result<NonNullable<paths[P][M]>>> {
   const target = path.replace("{id}", encodeURIComponent(options.id || ""));
@@ -40,7 +42,7 @@ export async function request<P extends keyof paths, M extends Methods & keyof p
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
   if (method !== "get") headers.set("Idempotency-Key", options.key || crypto.randomUUID());
-  const response = await fetch(`${url}${params.size ? `?${params}` : ""}`, {
+  const response = await (options.fetch ?? fetch)(`${url}${params.size ? `?${params}` : ""}`, {
     method: method.toUpperCase(),
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),

@@ -1,6 +1,6 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { page, query } from "../lib/schemas";
+import { page, query } from "@openstockai/schemas";
 import { call } from "../lib/api";
 import { pageResult, productSummary } from "../lib/results";
 import { enableToolGroups, toolGroupNames } from "../lib/tool-selection";

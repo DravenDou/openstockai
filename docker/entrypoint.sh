@@ -3,7 +3,8 @@
 #
 # Every file in $OPENSTOCK_SECRETS_DIR is a secret named after its file name. A variable that is
 # already set (for example an override in .env) wins over the generated value. Set
-# DB_PASSWORD_VAR to the name of the secret holding this service's database password and it
+# OPENSTOCK_SECRETS_SKIP (space-separated names) lists secrets this service must not load.
+# Set DB_PASSWORD_VAR to the name of the secret holding this service's database password and it
 # is exported as PGPASSWORD, which libpq, pgx and node-postgres all read. Values are never
 # printed and never written into images or compose files.
 set -eu
@@ -13,6 +14,7 @@ if [ -d "$dir" ]; then
     [ -f "$file" ] || continue
     name=$(basename "$file")
     case "$name" in *[!A-Za-z0-9_]* | [0-9]*) continue ;; esac
+    case " ${OPENSTOCK_SECRETS_SKIP:-} " in *" $name "*) continue ;; esac
     eval "current=\${$name:-}"
     if [ -z "$current" ]; then
       value=$(cat "$file")

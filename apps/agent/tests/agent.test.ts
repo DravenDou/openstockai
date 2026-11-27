@@ -11,7 +11,7 @@ import { z } from "zod";
 import { actionID, principal } from "../agent/lib/api";
 import { catalogCache } from "../agent/lib/catalog-cache";
 import { toolSelection, availableTools, enableToolGroups } from "../agent/lib/tool-selection";
-import { product, adjustment } from "../agent/lib/schemas";
+import { product, adjustment } from "@openstockai/schemas";
 import createProduct from "../agent/tools/createProduct";
 import config from "../agent/agent";
 import { emptySessionView } from "eve/events";
@@ -189,7 +189,7 @@ function mockAPI(t: TestContext) {
       if (state.forbidden)
         return reply({ error: { code: "FORBIDDEN", message: "Permission denied." } }, 403);
       if (url.pathname === "/v1/agent-actions")
-        return reply({ id: body.id, approvalStatus: "not_required" });
+        return reply({ id: body.id, approvalStatus: "not_required", ownerApprovalRequired: false });
       if (url.pathname.startsWith("/v1/agent-actions/") && method === "PATCH") {
         assert(
           Buffer.byteLength(JSON.stringify(body.result)) <= 65536,
@@ -482,7 +482,7 @@ test("filters go to Go, lookups paginate beyond their first page and schemas sta
   const movement = {
     product: userId,
     warehouse: warehouseId,
-    kind: "sale",
+    kind: "out",
     since: "2026-10-05T00:00:00-04:00",
   };
   assert((await execute(getStockMovements, movement)).ok);
@@ -578,7 +578,11 @@ test("tool calls Go with scoped JWT, stops at approval, never invents success", 
     assert.equal(req.headers["x-organization-id"], undefined);
     if (req.url === "/v1/agent-actions") {
       res.end(
-        JSON.stringify({ id: body.id, approvalStatus: pending ? "pending" : "not_required" }),
+        JSON.stringify({
+          id: body.id,
+          approvalStatus: pending ? "pending" : "not_required",
+          ownerApprovalRequired: false,
+        }),
       );
       return;
     }

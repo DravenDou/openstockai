@@ -1,7 +1,7 @@
 import { defineWorkflowTool } from "eve/tools";
 import { z } from "zod";
 import { approval } from "../lib/api";
-import { lookupName, withoutId } from "../lib/schemas";
+import { lookupName, withoutId } from "@openstockai/schemas";
 import { write } from "../lib/write";
 
 export default defineWorkflowTool({

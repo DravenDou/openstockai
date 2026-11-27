@@ -1,7 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { call } from "../lib/api";
-import { page } from "../lib/schemas";
+import { page } from "@openstockai/schemas";
 import { pageResult } from "../lib/results";
 import { modelPage } from "../lib/model-output";
 export default defineTool({

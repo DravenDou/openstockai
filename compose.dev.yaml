@@ -14,7 +14,9 @@ x-dev-source: &dev-source
   - /app/node_modules
   - /app/apps/web/node_modules
   - /app/apps/agent/node_modules
+  - /app/apps/mcp/node_modules
   - /app/packages/api-client/node_modules
+  - /app/packages/schemas/node_modules
   - /app/packages/server/node_modules
   - /app/apps/web/.next
 
@@ -31,6 +33,13 @@ services:
     <<: *dev-build
     working_dir: /app/apps/agent
     command: ["pnpm", "exec", "eve", "dev", "--host", "0.0.0.0", "--port", "4273", "--no-ui", "--no-default-extensions"]
+    environment:
+      NODE_ENV: development
+    volumes: *dev-source
+  mcp:
+    <<: *dev-build
+    working_dir: /app/apps/mcp
+    command: ["pnpm", "exec", "tsx", "watch", "src/main.ts"]
     environment:
       NODE_ENV: development
     volumes: *dev-source

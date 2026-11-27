@@ -1,6 +1,6 @@
 import { defineWorkflowTool } from "eve/tools";
 import { approval, readSettings } from "../lib/api";
-import { settingsPatch } from "../lib/schemas";
+import { settingsPatch } from "@openstockai/schemas";
 import { mergeSettings, saveSettings } from "../lib/settings";
 export default defineWorkflowTool({
   description:

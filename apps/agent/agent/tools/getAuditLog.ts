@@ -2,7 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { call } from "../lib/api";
 import { modelPage } from "../lib/model-output";
-import { cursor } from "../lib/schemas";
+import { cursor } from "@openstockai/schemas";
 export default defineTool({
   description:
     "Read the audit log, newest first: who (human, ai or system) did what to which resource and when. Filter by text or actor. Page with the returned next cursor until next is null. Returns metadata only, not the full before/after documents.",

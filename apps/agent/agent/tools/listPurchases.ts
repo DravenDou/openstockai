@@ -2,7 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { call } from "../lib/api";
 import { modelPage } from "../lib/model-output";
-import { cursor } from "../lib/schemas";
+import { cursor } from "@openstockai/schemas";
 export default defineTool({
   description:
     "List purchase receipts, newest first, with warehouse, supplier and total. Search by reference or supplier. Page with the returned next cursor until next is null. Use getPurchase for the lines.",

@@ -1,5 +1,5 @@
 import { defineTool } from "eve/tools";
-import { page, query } from "../lib/schemas";
+import { page, query } from "@openstockai/schemas";
 import { call } from "../lib/api";
 import { pageResult } from "../lib/results";
 export default defineTool({

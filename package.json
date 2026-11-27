@@ -21,6 +21,8 @@
     "test:integration": "node scripts/integration.mjs",
     "test:architecture": "node --test tests/architecture.test.mjs",
     "test:agent": "pnpm --filter @openstockai/agent test",
+    "test:mcp": "pnpm --filter @openstockai/mcp test",
+    "mcp:dev": "pnpm --filter @openstockai/mcp dev",
     "agent:dev": "pnpm --filter @openstockai/agent dev",
     "agent:build": "pnpm --filter @openstockai/agent build",
     "agent:eval": "pnpm --filter @openstockai/agent eval",
@@ -31,8 +33,8 @@
     "test:config": "pnpm --filter @openstockai/server test:config",
     "test:auth": "node scripts/auth-check.mjs",
     "owner:reset-password": "node apps/web/scripts/reset-owner-password.mjs",
-    "format": "prettier --write apps/web/src/features apps/web/src/shared apps/web/src/shell apps/web/src/server apps/agent/agent/tools apps/agent/agent/lib/schemas.ts packages tests/architecture.test.mjs",
-    "format:check": "prettier --check apps/web/src/features apps/web/src/shared apps/web/src/shell apps/web/src/server apps/agent/agent/tools apps/agent/agent/lib/schemas.ts packages tests/architecture.test.mjs",
+    "format": "prettier --write apps/web/src/features apps/web/src/shared apps/web/src/shell apps/web/src/server apps/agent/agent/tools packages apps/mcp/src apps/mcp/tests tests/architecture.test.mjs",
+    "format:check": "prettier --check apps/web/src/features apps/web/src/shared apps/web/src/shell apps/web/src/server apps/agent/agent/tools packages apps/mcp/src apps/mcp/tests tests/architecture.test.mjs",
     "db:provision": "node scripts/api.mjs --provision"
   },
   "devDependencies": {

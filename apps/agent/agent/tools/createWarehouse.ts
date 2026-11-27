@@ -1,7 +1,7 @@
 import { defineWorkflowTool } from "eve/tools";
 import { z } from "zod";
 import { approval } from "../lib/api";
-import { lookupName } from "../lib/schemas";
+import { lookupName } from "@openstockai/schemas";
 import { write } from "../lib/write";
 export default defineWorkflowTool({
   description: "Create a warehouse (stock location). Search warehouses first to avoid duplicates.",

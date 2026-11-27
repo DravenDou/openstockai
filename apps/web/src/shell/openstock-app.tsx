@@ -9,6 +9,7 @@ import {
   NewPurchaseView,
 } from "../features/purchases/views/purchases";
 import { CatalogView } from "../features/catalogs/views/catalogs";
+import { DashboardView } from "../features/dashboard/views/dashboard";
 import { ChatView } from "../features/assistant/views/chat";
 import { InventoryView } from "../features/inventory/views/inventory";
 import { PurchaseReviewView } from "../features/purchases/views/review";
@@ -25,7 +26,8 @@ export function OpenStockApp() {
 function Workspace() {
   const path = usePathname();
   let view: React.ReactNode;
-  if (path === "/") view = <ChatView />;
+  if (path === "/") view = <DashboardView />;
+  else if (path === "/assistant") view = <ChatView />;
   else if (path === "/inventory") view = <InventoryView />;
   else if (path === "/inventory/new") view = <NewProductView />;
   else if (path.startsWith("/inventory/"))

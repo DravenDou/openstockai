@@ -1,26 +1,11 @@
 import { notFound } from "next/navigation";
 import { OpenStockApp } from "@/shell/openstock-app";
+import { isAppRoute } from "@/shell/routes";
 
-const sections = [
-  "inventory",
-  "movements",
-  "purchases",
-  "audit",
-  "categories",
-  "units",
-  "warehouses",
-  "suppliers",
-  "restock",
-  "settings",
-  "agent-runs",
-];
 export default async function Page({ params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
-  if (
-    !sections.includes(path[0]) ||
-    path.length > 2 ||
-    (path.length === 2 && !["inventory", "purchases"].includes(path[0]))
-  )
-    notFound();
+  // The proxy answers unknown paths with a real 404 before streaming starts;
+  // this is the fallback for anything that reaches the page.
+  if (!isAppRoute(`/${path.join("/")}`)) notFound();
   return <OpenStockApp />;
 }

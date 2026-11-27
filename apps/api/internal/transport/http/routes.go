@@ -3,6 +3,7 @@ package apihttp
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -136,6 +137,35 @@ func registerRoutes(r chi.Router, s *inventory.Service) {
 	get(r, "/low-stock", func(r *http.Request, o listOptions) (any, error) {
 		return s.Q.LowStock(r.Context(), database.LowStockParams{Limit: o.limit, Offset: o.offset})
 	})
+	r.Get("/analytics/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		value, err := s.Dashboard(r.Context())
+		respond(w, value, err)
+	})
+	r.Get("/analytics/stock-valuation", func(w http.ResponseWriter, r *http.Request) {
+		value, err := s.StockValuation(r.Context(), r.URL.Query().Get("warehouse"), r.URL.Query().Get("category"))
+		respond(w, value, err)
+	})
+	r.Get("/analytics/turnover", func(w http.ResponseWriter, r *http.Request) {
+		days, limit, err := intParams(r, "days", "limit")
+		if err == nil {
+			var d, l int32
+			if d, l, err = inventory.ClampTurnover(days, limit); err == nil {
+				value, e := s.Turnover(r.Context(), d, l)
+				respond(w, value, e)
+				return
+			}
+		}
+		failure(w, err)
+	})
+	r.Get("/analytics/supplier-spend", func(w http.ResponseWriter, r *http.Request) {
+		from, to, err := inventory.SpendRange(time.Now(), r.URL.Query().Get("from"), r.URL.Query().Get("to"))
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		value, err := s.SupplierSpend(r.Context(), from, to)
+		respond(w, value, err)
+	})
 	get(r, "/purchases", func(r *http.Request, o listOptions) (any, error) {
 		return s.Q.ListPurchases(r.Context(), database.ListPurchasesParams{Limit: o.limit, Offset: o.offset})
 	})
@@ -244,4 +274,19 @@ func registerRoutes(r chi.Router, s *inventory.Service) {
 		_, err := s.Q.BindAgentSession(r.Context(), database.BindAgentSessionParams{UserID: t.UserID, SessionID: in.SessionID})
 		return map[string]bool{"ok": err == nil}, err
 	}))
+}
+
+// intParams reads optional non-negative integer query parameters (0 when absent).
+func intParams(r *http.Request, names ...string) (a, b int, err error) {
+	out := [2]int{}
+	for i, name := range names {
+		if v := r.URL.Query().Get(name); v != "" {
+			n, e := strconv.Atoi(v)
+			if e != nil {
+				return 0, 0, apperror.Fail("INVALID_QUERY", "Invalid number in query.", 400)
+			}
+			out[i] = n
+		}
+	}
+	return out[0], out[1], nil
 }

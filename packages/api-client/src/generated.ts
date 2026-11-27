@@ -692,6 +692,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/analytics/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v1_analytics_dashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/stock-valuation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v1_analytics_stock_valuation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/turnover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v1_analytics_turnover"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/supplier-spend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v1_analytics_supplier_spend"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1040,6 +1104,96 @@ export interface components {
             id: string;
             reference: string;
             items: number;
+        };
+        AnalyticsMovement: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            product_id: string;
+            product_name: string;
+            /** Format: uuid */
+            warehouse_id: string;
+            warehouse_name: string;
+            quantity: number;
+            type: string;
+            actor_type: string;
+            /** Format: date-time */
+            created_at: string;
+            unit_symbol: string;
+        };
+        AnalyticsDashboard: {
+            currency: string;
+            stock_value: string;
+            low_stock_count: number;
+            movements_7d: number;
+            purchase_spend_30d: string;
+            purchases_30d: number;
+            recent_movements: components["schemas"]["AnalyticsMovement"][];
+        };
+        ValuationCategory: {
+            category_id: string | null;
+            category_name: string;
+            products: number;
+            stock_value: string;
+        };
+        ValuationWarehouse: {
+            /** Format: uuid */
+            warehouse_id: string;
+            warehouse_name: string;
+            products: number;
+            stock_value: string;
+        };
+        StockValuation: {
+            currency: string;
+            stock_value: string;
+            products: number;
+            by_category: components["schemas"]["ValuationCategory"][];
+            by_warehouse: components["schemas"]["ValuationWarehouse"][];
+        };
+        TopMover: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            sku: string;
+            unit_symbol: string;
+            units_out: number;
+            movements: number;
+            last_outbound_at: string | null;
+            on_hand: number;
+        };
+        SlowMover: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            sku: string;
+            unit_symbol: string;
+            on_hand: number;
+            units_out: number;
+            last_outbound_at: string | null;
+            days_since_last_outbound: number | null;
+            stock_value: string;
+        };
+        Turnover: {
+            days: number;
+            top_movers: components["schemas"]["TopMover"][];
+            slow_movers: components["schemas"]["SlowMover"][];
+        };
+        SupplierSpendRow: {
+            supplier_id: string | null;
+            supplier_name: string;
+            purchases: number;
+            spend: string;
+            last_purchase_at: string | null;
+        };
+        SupplierSpend: {
+            currency: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            total_spend: string;
+            purchases: number;
+            suppliers: components["schemas"]["SupplierSpendRow"][];
         };
     };
     responses: never;
@@ -2574,6 +2728,131 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExportPage"];
+                };
+            };
+            /** @description Domain error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    get_v1_analytics_dashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsDashboard"];
+                };
+            };
+            /** @description Domain error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    get_v1_analytics_stock_valuation: {
+        parameters: {
+            query?: {
+                warehouse?: string;
+                category?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockValuation"];
+                };
+            };
+            /** @description Domain error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    get_v1_analytics_turnover: {
+        parameters: {
+            query?: {
+                days?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Turnover"];
+                };
+            };
+            /** @description Domain error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    get_v1_analytics_supplier_spend: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierSpend"];
                 };
             };
             /** @description Domain error */

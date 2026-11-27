@@ -46,7 +46,6 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 		args []any
 	}{
 		{`INSERT INTO auth."user"(id,name,email,"emailVerified","createdAt","updatedAt") VALUES($1,'Test','test@example.com',true,now(),now())`, []any{user}},
-		{`INSERT INTO auth."user"(id,name,email,"emailVerified","createdAt","updatedAt") VALUES($1,'Other','other@example.com',true,now(),now())`, []any{otherUser}},
 		{`INSERT INTO auth.session(id,"userId",token,"expiresAt","createdAt","updatedAt") VALUES($1::uuid,$2,$1::text,now()+interval '1 hour',now(),now())`, []any{session, user}},
 	} {
 		if _, e = pool.Exec(ctx, stmt.sql, stmt.args...); e != nil {
@@ -588,6 +587,57 @@ func TestPostgresSecurityAndTransactions(t *testing.T) {
 		}
 		if status, result := call("POST", "inventory/counts", uuid.NewString(), map[string]any{"productId": id, "warehouseId": warehouse, "expected": current, "counted": 0, "reference": "Empty by count"}, false, ""); status != 200 || result["counted"] != float64(0) {
 			t.Fatalf("zero count %d %v", status, result)
+		}
+	})
+	t.Run("analytics read models", func(t *testing.T) {
+		status, summary := call("GET", "inventory/summary", "", nil, false, "")
+		if status != 200 {
+			t.Fatalf("summary %d", status)
+		}
+		status, dash := call("GET", "analytics/dashboard", "", nil, false, "")
+		if status != 200 || dash["currency"] == "" || dash["stock_value"] != summary["stock_value"] {
+			t.Fatalf("dashboard %d %v vs %v", status, dash, summary)
+		}
+		if movements, ok := dash["recent_movements"].([]any); !ok || len(movements) == 0 || len(movements) > 10 || movements[0].(map[string]any)["product_name"] == "" {
+			t.Fatalf("recent movements %v", dash["recent_movements"])
+		}
+		if dash["purchase_spend_30d"] == "0.00" || dash["purchases_30d"].(float64) < 1 {
+			t.Fatalf("purchase spend missing %v", dash)
+		}
+		status, valuation := call("GET", "analytics/stock-valuation", "", nil, false, "")
+		if status != 200 || valuation["stock_value"] != summary["stock_value"] || len(valuation["by_category"].([]any)) == 0 || len(valuation["by_warehouse"].([]any)) == 0 {
+			t.Fatalf("valuation %d %v", status, valuation)
+		}
+		if status, filtered := call("GET", "analytics/stock-valuation?warehouse="+warehouse+"&category="+category, "", nil, false, ""); status != 200 || filtered["products"].(float64) < 1 {
+			t.Fatalf("filtered valuation %d %v", status, filtered)
+		}
+		if status, _ := call("GET", "analytics/stock-valuation?warehouse=bad", "", nil, false, ""); status != 400 {
+			t.Fatalf("bad warehouse accepted: %d", status)
+		}
+		status, turnover := call("GET", "analytics/turnover?days=30&limit=5", "", nil, false, "")
+		if status != 200 || turnover["days"].(float64) != 30 || len(turnover["slow_movers"].([]any)) == 0 {
+			t.Fatalf("turnover %d %v", status, turnover)
+		}
+		for _, bad := range []string{"days=0x", "days=366", "limit=51", "days=-1"} {
+			if status, _ := call("GET", "analytics/turnover?"+bad, "", nil, false, ""); status != 400 {
+				t.Fatalf("turnover %s returned %d", bad, status)
+			}
+		}
+		status, spend := call("GET", "analytics/supplier-spend", "", nil, false, "")
+		if status != 200 || spend["purchases"].(float64) < 1 || len(spend["suppliers"].([]any)) == 0 {
+			t.Fatalf("supplier spend %d %v", status, spend)
+		}
+		if status, _ := call("GET", "analytics/supplier-spend?from=2030-01-01&to=2020-01-01", "", nil, false, ""); status != 400 {
+			t.Fatalf("inverted range returned %d", status)
+		}
+		if status, old := call("GET", "analytics/supplier-spend?from=2000-01-01&to=2000-02-01", "", nil, false, ""); status != 200 || old["total_spend"] != "0.00" {
+			t.Fatalf("empty range %d %v", status, old)
+		}
+		for _, path := range []string{"stock-valuation", "turnover", "supplier-spend"} {
+			status, result := call("POST", "agent-actions", "", map[string]any{"id": uuid.NewString(), "conversationId": "analytics", "operation": "GET /v1/analytics/" + path, "toolInput": map[string]any{}}, true, "")
+			if status != 200 || result["approvalStatus"] != "not_required" {
+				t.Fatalf("agent analytics %s: %d %v", path, status, result)
+			}
 		}
 	})
 	t.Run("history cursors and privileges", func(t *testing.T) {

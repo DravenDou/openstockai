@@ -187,7 +187,7 @@ export function AiShortcut({
         <Sparkles size={19} className="shrink-0 text-primary" />
         <span>{children}</span>
       </div>
-      <ActionLink href="/" className="h-9 w-fit bg-white">
+      <ActionLink href="/assistant" className="h-9 w-fit bg-white">
         <ArrowUpRight size={14} />
         {label}
       </ActionLink>

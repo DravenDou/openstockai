@@ -1344,6 +1344,404 @@
         "items"
       ],
       "additionalProperties": false
+    },
+    "AnalyticsMovement": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_name": {
+          "type": "string"
+        },
+        "warehouse_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "warehouse_name": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "type": {
+          "type": "string"
+        },
+        "actor_type": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "unit_symbol": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "product_id",
+        "product_name",
+        "warehouse_id",
+        "warehouse_name",
+        "quantity",
+        "type",
+        "actor_type",
+        "created_at",
+        "unit_symbol"
+      ],
+      "additionalProperties": false
+    },
+    "AnalyticsDashboard": {
+      "type": "object",
+      "properties": {
+        "currency": {
+          "type": "string"
+        },
+        "stock_value": {
+          "type": "string"
+        },
+        "low_stock_count": {
+          "type": "integer"
+        },
+        "movements_7d": {
+          "type": "integer"
+        },
+        "purchase_spend_30d": {
+          "type": "string"
+        },
+        "purchases_30d": {
+          "type": "integer"
+        },
+        "recent_movements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnalyticsMovement"
+          }
+        }
+      },
+      "required": [
+        "currency",
+        "stock_value",
+        "low_stock_count",
+        "movements_7d",
+        "purchase_spend_30d",
+        "purchases_30d",
+        "recent_movements"
+      ],
+      "additionalProperties": false
+    },
+    "ValuationCategory": {
+      "type": "object",
+      "properties": {
+        "category_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "category_name": {
+          "type": "string"
+        },
+        "products": {
+          "type": "integer"
+        },
+        "stock_value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "category_id",
+        "category_name",
+        "products",
+        "stock_value"
+      ],
+      "additionalProperties": false
+    },
+    "ValuationWarehouse": {
+      "type": "object",
+      "properties": {
+        "warehouse_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "warehouse_name": {
+          "type": "string"
+        },
+        "products": {
+          "type": "integer"
+        },
+        "stock_value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "warehouse_id",
+        "warehouse_name",
+        "products",
+        "stock_value"
+      ],
+      "additionalProperties": false
+    },
+    "StockValuation": {
+      "type": "object",
+      "properties": {
+        "currency": {
+          "type": "string"
+        },
+        "stock_value": {
+          "type": "string"
+        },
+        "products": {
+          "type": "integer"
+        },
+        "by_category": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ValuationCategory"
+          }
+        },
+        "by_warehouse": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ValuationWarehouse"
+          }
+        }
+      },
+      "required": [
+        "currency",
+        "stock_value",
+        "products",
+        "by_category",
+        "by_warehouse"
+      ],
+      "additionalProperties": false
+    },
+    "TopMover": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "unit_symbol": {
+          "type": "string"
+        },
+        "units_out": {
+          "type": "number"
+        },
+        "movements": {
+          "type": "integer"
+        },
+        "last_outbound_at": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "on_hand": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "sku",
+        "unit_symbol",
+        "units_out",
+        "movements",
+        "last_outbound_at",
+        "on_hand"
+      ],
+      "additionalProperties": false
+    },
+    "SlowMover": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "unit_symbol": {
+          "type": "string"
+        },
+        "on_hand": {
+          "type": "number"
+        },
+        "units_out": {
+          "type": "number"
+        },
+        "last_outbound_at": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "days_since_last_outbound": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stock_value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "sku",
+        "unit_symbol",
+        "on_hand",
+        "units_out",
+        "last_outbound_at",
+        "days_since_last_outbound",
+        "stock_value"
+      ],
+      "additionalProperties": false
+    },
+    "Turnover": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer"
+        },
+        "top_movers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TopMover"
+          }
+        },
+        "slow_movers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SlowMover"
+          }
+        }
+      },
+      "required": [
+        "days",
+        "top_movers",
+        "slow_movers"
+      ],
+      "additionalProperties": false
+    },
+    "SupplierSpendRow": {
+      "type": "object",
+      "properties": {
+        "supplier_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "supplier_name": {
+          "type": "string"
+        },
+        "purchases": {
+          "type": "integer"
+        },
+        "spend": {
+          "type": "string"
+        },
+        "last_purchase_at": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "supplier_id",
+        "supplier_name",
+        "purchases",
+        "spend",
+        "last_purchase_at"
+      ],
+      "additionalProperties": false
+    },
+    "SupplierSpend": {
+      "type": "object",
+      "properties": {
+        "currency": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "total_spend": {
+          "type": "string"
+        },
+        "purchases": {
+          "type": "integer"
+        },
+        "suppliers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SupplierSpendRow"
+          }
+        }
+      },
+      "required": [
+        "currency",
+        "from",
+        "to",
+        "total_spend",
+        "purchases",
+        "suppliers"
+      ],
+      "additionalProperties": false
     }
   },
   "responses": {
@@ -1530,6 +1928,18 @@
     },
     "GET /v1/products-export": {
       "$ref": "#/$defs/ExportPage"
+    },
+    "GET /v1/analytics/dashboard": {
+      "$ref": "#/$defs/AnalyticsDashboard"
+    },
+    "GET /v1/analytics/stock-valuation": {
+      "$ref": "#/$defs/StockValuation"
+    },
+    "GET /v1/analytics/turnover": {
+      "$ref": "#/$defs/Turnover"
+    },
+    "GET /v1/analytics/supplier-spend": {
+      "$ref": "#/$defs/SupplierSpend"
     }
   }
 }

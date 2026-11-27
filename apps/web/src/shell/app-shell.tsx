@@ -10,6 +10,7 @@ import {
   Boxes,
   FolderTree,
   History,
+  LayoutDashboard,
   LogOut,
   Menu,
   Ruler,
@@ -34,7 +35,8 @@ import {
 } from "../shared/ui/dialog";
 
 const links = [
-  { href: "/", label: "Assistant", icon: Bot, group: "Workspace" },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard, group: "Workspace" },
+  { href: "/assistant", label: "Assistant", icon: Bot },
   { href: "/inventory", label: "Inventory", icon: Boxes, group: "Operations" },
   { href: "/movements", label: "Movements", icon: History },
   { href: "/purchases", label: "Purchases", icon: Receipt },
@@ -84,7 +86,7 @@ function Brand() {
   return (
     <Link
       href="/"
-      aria-label="OpenStock AI, go to assistant"
+      aria-label="OpenStock AI, go to dashboard"
       className="flex items-center gap-2.5 px-6 py-6"
     >
       <AudioLines size={26} className="text-primary" />
@@ -99,7 +101,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const title =
     [...links].reverse().find((link) => link.href !== "/" && pathname.startsWith(link.href))
-      ?.label || "Assistant";
+      ?.label || "Dashboard";
   return (
     <div className="min-h-svh bg-background">
       <a

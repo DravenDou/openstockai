@@ -16,7 +16,6 @@ USER node
 
 FROM bootstrap AS development
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY --chown=node:node patches ./patches
 COPY --chown=node:node apps/web/package.json ./apps/web/package.json
 COPY --chown=node:node apps/agent/package.json ./apps/agent/package.json
 COPY --chown=node:node packages/api-client/package.json ./packages/api-client/package.json

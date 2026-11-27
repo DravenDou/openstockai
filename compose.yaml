@@ -182,7 +182,8 @@ services:
       HOST: 0.0.0.0
       PORT: 4273
       EVE_TRACES_CONTENT: "off"
-      # The shared configuration requires these; the agent receives no DB credentials.
+      # The shared serverEnv schema requires these. They are placeholders: the agent never uses
+      # them and receives no real auth secret or DB credentials (least privilege).
       DATABASE_URL: postgresql://unused:unused@unavailable/unused
       BETTER_AUTH_URL: http://web:3017
       BETTER_AUTH_SECRET: unused-agent-configuration-value-32chars

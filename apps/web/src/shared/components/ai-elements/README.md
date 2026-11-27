@@ -1,8 +1,9 @@
 # Chat blocks
 
 Adaptations of the Message, Conversation and Tool components from
-[Vercel AI Elements](https://elements.ai-sdk.dev/), under the bundled MIT license.
-Source: official registry, accessed on October 12, 2026:
+[Vercel AI Elements](https://elements.ai-sdk.dev/), under the Apache License 2.0 (Copyright 2023 Vercel, Inc.; see the bundled
+[LICENSE](LICENSE)).
+Source: official registry:
 
 - https://elements.ai-sdk.dev/api/registry/message.json
 - https://elements.ai-sdk.dev/api/registry/conversation.json
@@ -19,7 +20,4 @@ presentation only; they do not introduce `useChat` or any parallel transport/mod
 The assistant feature adapts Eve parts, identifies domain failures and shows
 durable turn errors, even when Eve returns `ready` with an empty error.
 
-Pinned dependencies: Streamdown 2.7.0 and use-stick-to-bottom 1.1.6. Compatibility
-checked against the installed React/Next, official guides and peers. Context7 was
-not available. Before installing: OSV for both versions and `pnpm audit --prod`
-on the resolved lock, with no known vulnerabilities in those sources.
+Pinned dependencies: Streamdown 2.7.0 and use-stick-to-bottom 1.1.6.

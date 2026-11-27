@@ -25,3 +25,7 @@ apps/api/api
 apps/api/api.exe
 .backups/
 .private
+.agents
+docs/screenshots
+**/AGENTS.md
+**/CLAUDE.md

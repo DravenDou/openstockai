@@ -31,7 +31,7 @@ Evals cost tokens. `--check` and `--list` do not call the model. For what each e
    `OPENSTOCK_EVAL_TOKEN`, hands it to the eval stack's agent (`compose.eval.yaml`) and sends it as a bearer
    token through `EVE_EVAL_AUTH_TOKEN` (Eve's `targetAuth` would need an HTTPS target). The agent's
    `agent/channels/eve.ts` accepts that token in place of the service secret, and, for the bearer-only
-   `/eve/v1/info` read that Eve 1 makes before the run, as a service principal. Both paths exist only when
+   `/eve/v1/info` read that `eve eval` makes before the run, as a service principal. Both paths exist only when
    the variable is set, which no production configuration does.
 5. Always runs `docker compose -p openstockai-eval down -v` and deletes the temp directory
    (the project name is a constant, so it cannot remove your real stack).

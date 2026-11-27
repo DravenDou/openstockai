@@ -8,8 +8,10 @@ OpenStock AI is a small modular monorepo for a single-owner inventory app. Next.
 - [Authentication](#authentication)
 - [Data model](#data-model)
 - [Mutations: transactions and idempotency](#mutations-transactions-and-idempotency)
+- [Design decisions and trade-offs](#design-decisions-and-trade-offs)
 - [Code generation](#code-generation)
 - [Deployment shape](#deployment-shape)
+- [Known limitations](#known-limitations)
 
 The agent is documented in [AI.md](AI.md).
 
@@ -109,7 +111,7 @@ Both are consumed as TypeScript source (no build step).
 - `apps/agent` never imports `apps/web`; `packages` never import from `apps`; `api-client` does not import `server`.
 - Go: modules do not import each other, and `platform` does not import `modules`, `app` or `transport`. The same Go rules are also checked by `internal/architecture/boundaries_test.go`, which runs with `pnpm test:go`.
 
-There is no CI: run these checks before committing.
+The checks are plain local commands (`pnpm test:architecture`, `pnpm test:go`); the repository has no CI workflow.
 
 ## Request flow
 
@@ -189,17 +191,41 @@ Design points:
 - **Immutable ledger.** `forbid_ledger_change()` is a `BEFORE UPDATE OR DELETE` trigger on `stock_movements` and `audit_logs` that raises an exception. The runtime database role also has no `UPDATE` on those tables. A correction is a new compensating movement.
 - **Single-row settings.** `settings.id` is a boolean primary key constrained to `true`, and the migration seeds the row. The runtime role can only read and update it. The fields enforced by the backend are the ones used by the approval policy (`automatic`); the rest (`store`, `currency`, `timezone`, `lowStock`, `voice`) are preferences stored as JSON. `lowStock` toggles the restocking alert in the assistant panel and `voice` makes the browser read replies aloud; both are browser-side preferences that Go stores but does not enforce. `automatic` defaults to `false`.
 - **Archive instead of delete.** `DELETE /v1/products/{id}` archives a product; history is kept and `POST /v1/products/{id}/restore` brings it back. Categories, warehouses and suppliers can be deleted only when nothing references them.
-- **Roles.** The migration owner creates the schema. `openstock_api` gets read and write on business tables (no `UPDATE` on the two ledgers, `DELETE` only on the three lookup tables) and read access to the auth users and sessions. `openstock_auth` gets full access to the `auth` schema only. Login roles for each are provisioned by `pnpm db:provision` (or the Compose provision step).
+- **Roles.** The migration owner creates the schema. `openstock_api` gets read and write on business tables (no `UPDATE` on the two ledgers, `DELETE` only on the three lookup tables) and read access to the auth users and sessions. `openstock_auth` gets full access to the `auth` schema only. `openstock_api` also has `UPDATE` on `auth.session."createdAt"` only, which lets it take a `FOR SHARE` row lock when it checks that the session is active, without write access to tokens or other session data. Login roles for each are provisioned by `pnpm db:provision` (or the Compose provision step).
 
 ## Mutations: transactions and idempotency
 
 Every state change goes through one function, `Service.Mutate` in `modules/inventory/mutations.go`:
 
-1. Require a UUID idempotency key and check the session is still active.
-2. Claim the key, lock it and compare the stored operation and request hash. A replay with the same key and body returns the stored response; a different body is a conflict.
-3. For AI actors, load the registered action and verify that operation and body match, that it is still pending, that it was not rejected and that the approval policy is satisfied.
-4. Run the change, write the audit row and mark the agent action complete.
-5. Store the response and commit. Stock, ledger, audit, action and idempotency record are all in one transaction.
+1. Require a UUID idempotency key and check in the transaction that the session is still active.
+2. Claim the key (scoped to the user), lock the row and compare the stored operation and request hash. A different operation or body under the same key is `IDEMPOTENCY_CONFLICT`. If a response is already stored, return it and commit: a replay never re-runs the change or re-checks approval.
+3. For AI actors, load the registered action and verify that its operation and body hash match what is being executed and that it is still `pending` (`ACTION_MISMATCH`), that it was not rejected (`ACTION_REJECTED`), and that the approval policy is satisfied (`ACTION_STALE` if the policy now requires approval for an action registered as not requiring it, `APPROVAL_REQUIRED` if approval is still missing).
+4. Run the change, write the audit row and mark the agent action `completed` with its result.
+5. Store the response on the idempotency record and commit. Stock, ledger, audit, action and idempotency record are all in one transaction, so a failure leaves none of them behind.
+
+The same function serves human and AI actors; the only difference is step 3. Because the response is stored in the same transaction as the change, a client that times out can retry with the same key and gets either the stored result or a clean slate, never a half-applied change.
+
+## Design decisions and trade-offs
+
+**Go owns the business rules.** Validation, stock arithmetic, the approval policy, idempotency and audit are implemented once, in Go, behind a REST API. The web UI and the agent are two clients of the same rules, so the assistant cannot do anything the API would not allow a human, and a prompt change cannot weaken a rule. The cost is a second language and a generated TypeScript client (`openapi.json` is the contract), plus a network hop for every agent tool call.
+
+**The AI never gets SQL.** The model can only call typed tools, each mapped to one REST endpoint, with strict input schemas. The agent process has no database credentials. A text-to-SQL agent would be more flexible, but its blast radius is the whole database and its writes could not be bound to an approval. Here the worst a manipulated model can do is call a tool, and every write that matters stops at an approval. The cost is that a new capability needs a new endpoint and tool.
+
+**Single tenant.** The app serves one owner, so business tables have no tenant column and Better Auth runs with a closed sign-up. This removes a class of cross-tenant bugs and keeps queries simple. The cost is that multi-user or multi-organization use would need a schema change and a scoping pass over every query; it is not a configuration switch.
+
+**Approvals are stored in Go (`agent_actions`), not in the agent.** The agent is a durable workflow that can restart or park for days; the authoritative record of what was proposed, approved and executed must not depend on its state. Storing the action in Go lets the mutation transaction verify the approval atomically with the change, bind it to the exact payload by hash, and re-evaluate the policy at execution time (so turning auto-approval off between registration and execution invalidates a stale action). It also gives the audit log and the Agent runs page a source that survives agent restarts and trace expiry. The cost is one extra API call per tool call (registration), which reads also pay so that the audit trail is complete.
+
+**An immutable ledger instead of mutable counters.** `inventory` holds the current quantity for fast reads, but every change also appends a `stock_movements` row in the same transaction, and database triggers reject updates and deletes on the ledger and the audit log. Corrections are compensating movements. The cost is that mistakes cannot be edited away, which is the intent.
+
+**JWT per request with a live session check.** Short-lived EdDSA tokens avoid shared sessions between Next.js and Go, but a valid token alone is not enough: Go also checks the session row, so signing out takes effect immediately. The cost is a session lookup inside every mutation transaction.
+
+## Known limitations
+
+- The agent service holds the shared secret and relays the owner's approval to Go, so it is part of the trusted computing base. Go enforces that approval needs a human-actor token, but the token is minted by Next.js on the agent's request after it verifies the user's cookie.
+- There is no built-in TLS. Run it on a trusted network or behind a reverse proxy with HTTPS.
+- The `settings` document is one JSON row. Only `automatic` is enforced by the backend; the other fields are stored preferences.
+- Only one business module exists today, so the module-isolation rule is enforced but not yet exercised by a second module.
+- Agent observability in production depends on an undocumented Eve internal; see [AI.md](AI.md#observability).
 
 ## Code generation
 
@@ -213,4 +239,4 @@ Every state change goes through one function, `Service.Mutate` in `modules/inven
 
 ## Deployment shape
 
-Docker Compose runs PostgreSQL, a one-shot migration and provisioning step, the Go API, the Next.js app and the Eve agent. Only the web port needs to be reachable by a browser; the API and database ports are published on localhost only in the default Compose file. For internet exposure, put your own reverse proxy with HTTPS in front of the web port. See the [README](../README.md#quick-start) for commands.
+Docker Compose runs PostgreSQL, a one-shot migration and provisioning step, the Go API, the Next.js app and the Eve agent. Only the web port needs to be reachable by a browser; the API and database ports are published on localhost only in the default Compose file. The stack serves plain HTTP. For any exposure beyond localhost, put a TLS reverse proxy in front of the web port and set `BETTER_AUTH_URL` to the `https://` origin, which is what turns on secure cookies. The authentication rate limit is one shared bucket per path because no client-IP header is trusted (see the README security model). See the [README](../README.md#quick-start) for commands.

@@ -14,6 +14,8 @@ out/
 *.tsbuildinfo
 playwright-report/
 test-results/
+blob-report/
+playwright/.cache/
 .impeccable/
 
 # Local tooling, reports and generated binaries
@@ -41,3 +43,15 @@ Thumbs.db
 
 # Private working notes (never published)
 .private/
+
+# Local-only agent instructions and assistant tooling (Next.js may regenerate AGENTS.md
+# in apps/web when `next dev` runs, so these patterns match at any depth)
+AGENTS.md
+CLAUDE.md
+.agents/
+docs/screenshots/
+
+# Local assistant and code-index state
+.claude/
+.codegraph/
+.tgrep/

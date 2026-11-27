@@ -1,17 +1,20 @@
 # AI assistant
 
-A deep dive into how the assistant works: what it can do, how writes are approved, how the prompt and tool results are shaped, and how it is tested. For the overall system see [ARCHITECTURE.md](ARCHITECTURE.md); for a shorter summary see the [README](../README.md#ai-engineering).
+A deep dive into how the assistant works: what it can do, how writes are approved, how the prompt and tool results are shaped, and how it is tested. For the overall system see [ARCHITECTURE.md](ARCHITECTURE.md); for a short summary see the [README](../README.md#design-points).
 
 - [Design rules](#design-rules)
 - [Runtime](#runtime)
 - [Tool catalog](#tool-catalog)
 - [Progressive tool selection](#progressive-tool-selection)
 - [Approval lifecycle](#approval-lifecycle)
+- [Provider layer](#provider-layer)
 - [Prompt design](#prompt-design)
 - [Token and cost controls](#token-and-cost-controls)
 - [Failure handling](#failure-handling)
 - [Observability](#observability)
 - [Evals](#evals)
+- [Design decisions and trade-offs](#design-decisions-and-trade-offs)
+- [Known limitations](#known-limitations)
 - [Adding a tool](#adding-a-tool)
 
 ## Design rules
@@ -24,17 +27,18 @@ A deep dive into how the assistant works: what it can do, how writes are approve
 
 ## Runtime
 
-| Piece                    | Where                                    | Notes                                                                                                                      |
-| ------------------------ | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Agent definition         | `apps/agent/agent/agent.ts`              | Model resolved per step, compaction at 75% of the context window, fixed per-session token budgets (200,000 in, 10,000 out) |
-| Instructions             | `apps/agent/agent/instructions.md`       | System prompt, about 50 lines                                                                                              |
-| Tools                    | `apps/agent/agent/tools/*.ts`            | One file per tool, the file name is the tool name                                                                          |
-| API access and approvals | `apps/agent/agent/lib/api.ts`            | `call()`, `approval()`, `actionID()`, `principal()`                                                                        |
-| Durable write step       | `apps/agent/agent/lib/write.ts`          | Checkpoints a write as its own step                                                                                        |
-| Tool selection           | `apps/agent/agent/lib/tool-selection.ts` | Groups, core tools, per-turn state                                                                                         |
-| Model output shaping     | `apps/agent/agent/lib/model-output.ts`   | TOON projection                                                                                                            |
-| Channel and auth         | `apps/agent/agent/channels/eve.ts`       | Authenticates the user's cookie through Next.js                                                                            |
-| Model layer and limits   | `packages/server/src/ai/`                | Provider selection, `limitsMiddleware`, error mapping, cost estimate                                                       |
+| Piece                    | Where                                    | Notes                                                                                                                                                                                                             |
+| ------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent definition         | `apps/agent/agent/agent.ts`              | Model resolved before every model call; compaction at 75% of the configured input limit (`AI_MAX_INPUT_TOKENS` is passed as the model's context window); session token budgets (200,000 new input, 10,000 output) |
+| Instructions             | `apps/agent/agent/instructions.md`       | System prompt, about 50 lines                                                                                                                                                                                     |
+| Tools                    | `apps/agent/agent/tools/*.ts`            | One file per tool, the file name is the tool name                                                                                                                                                                 |
+| API access and approvals | `apps/agent/agent/lib/api.ts`            | `call()`, `approval()`, `actionID()`, `principal()`                                                                                                                                                               |
+| Durable write step       | `apps/agent/agent/lib/write.ts`          | Checkpoints a write as its own step                                                                                                                                                                               |
+| Tool selection           | `apps/agent/agent/lib/tool-selection.ts` | Groups, core tools, per-turn state                                                                                                                                                                                |
+| Model output shaping     | `apps/agent/agent/lib/model-output.ts`   | TOON projection                                                                                                                                                                                                   |
+| Channel and auth         | `apps/agent/agent/channels/eve.ts`       | Authenticates the user's cookie through Next.js                                                                                                                                                                   |
+| Chat client              | `apps/web/src/features/assistant`        | `useEveAgent` from Eve; approvals are Eve interactions answered with `approve` or `deny`                                                                                                                          |
+| Model layer and limits   | `packages/server/src/ai/`                | Provider selection, `limitsMiddleware`, error mapping, cost estimate                                                                                                                                              |
 
 [Eve](https://www.npmjs.com/package/eve) runs each conversation as a durable workflow: turns checkpoint at steps, and a conversation can park while it waits for the owner to approve something and resume afterwards, even across restarts. Write tools are `defineWorkflowTool`s whose network call runs in a `"use step"` function, so a replay reuses the recorded tool call ID instead of making a new one. That is what makes the idempotency key stable.
 
@@ -104,7 +108,7 @@ Sending 39 schemas with every model call is wasteful, and each extra step repeat
 - **Enabling:** call `selectTools({ groups: [...] })`, or pass `nextAction` to `searchProducts` to enable a group during a search. Groups can be combined for compound tasks.
 - **Scope:** the enabled set lives in Eve state keyed by user, session, conversation and turn. It resets on every new turn and cannot leak between users.
 - **Filtering:** `limitsMiddleware` removes the tools that are not enabled from the model request.
-- **Anthropic thinking:** Claude signs thinking blocks against the `tools` list, so changing it mid-turn made the next call fail with a 400. The native `anthropic` provider now sends `thinking: { type: "adaptive", blockBinding: { prefixMismatchBehavior: "drop_block" } }` (beta `thinking-binding-controls-2026-08-01`), and provider errors are logged as `ai_provider_error` (status, type, message, host only). This applies only to models with preserved thinking (claude-haiku-5-5, sonnet-5-5, opus-5-5, fable-5-1/5-2, mythos-5-1/5-2); other Anthropic models, `openai-compatible` and `ollama` are sent the request unchanged.
+- **Anthropic thinking:** changing the advertised tools between steps interacts with Claude's thinking blocks; see [Provider layer](#provider-layer).
 
 Selection is an optimization, not security. A model that guesses a tool name outside its enabled set still hits Go, which authorizes every call and parks every write that needs approval. A fixed list of groups also avoids a separate classifier that could hide a tool the model needs. Set `AI_TOOL_SELECTION=all` to expose every tool (useful to compare behavior).
 
@@ -134,16 +138,32 @@ stateDiagram-v2
 
 1. **Register.** The tool's approval policy (`approval()` in `lib/api.ts`) posts the action to Go with a deterministic ID, the conversation ID, the operation (for example `POST /v1/inventory/adjustments`) and the exact input. Only an AI actor can register. Go validates the operation against an allow-list, limits the payload to 64 KiB and decides the approval status:
    - Reads are `not_required`.
-   - A write is `pending` if auto-approval is off (the default: the `automatic` setting is `false` in a fresh database and is opt-in), **or** it is high risk (see the note above on quantities above 1000), **or** the operation is destructive (`DELETE`, archive, restore). Otherwise it is `not_required`.
+   - A write is `pending` if auto-approval is off (the default: the `automatic` setting is `false` in a fresh database and is opt-in; a missing settings row or value also counts as off), **or** it is high risk (`isHighRisk`, quantities above 1000; a body that cannot be parsed counts as high risk, so malformed input can never skip confirmation), **or** the operation is destructive (`isDestructive`: `DELETE`, archive, restore). Otherwise it is `not_required`.
    - Registering the same ID again returns the stored action. The same ID with a different operation or payload is `ACTION_MISMATCH`.
 2. **Ask.** For `pending`, Eve parks the turn and the chat shows a confirmation card describing the change. The agent keeps no state while it waits.
 3. **Decide.** Only the user who started the action can answer. Eve's response policy checks that, then calls an internal Next.js route, which signs a token for that user **without** the agent secret and calls `POST /v1/agent-actions/{id}/approval`. Go requires a human actor and an active session, moves the action from `pending` to `approved` or `rejected` only if it is still pending, and records an `approve_agent_action` audit entry.
 4. **Execute.** The tool calls the real endpoint (for example `POST /v1/inventory/adjustments`) with the action ID in `X-Agent-Action-ID` and as the `Idempotency-Key`. Inside the mutation transaction Go checks that the action exists, is still `pending`, was not rejected, matches the operation and the exact body (hash), and satisfies the policy again. If settings changed to require approval after registration it answers `ACTION_STALE`; if approval is still missing, `APPROVAL_REQUIRED`.
 5. **Complete.** In the same transaction Go writes the audit entry and marks the action `completed` with the result. For reads, the agent patches the action to `completed` with a compact result; a failure is recorded as `failed` with an error message.
 
-A rejected action returns `APPROVAL_REJECTED` to the model, which is told to accept it, not retry and offer an alternative.
+If the owner rejects, Eve denies the tool call (`TOOL_EXECUTION_DENIED`). A read or write whose action is already rejected when it runs returns `APPROVAL_REJECTED` to the model (Go itself answers `ACTION_REJECTED`). The prompt tells the model to accept the rejection, not retry, and offer an alternative.
 
 Two properties follow from this design: the model cannot approve its own action (approval needs a human-actor token), and the owner approves what will actually run (the payload is bound by hash, not re-supplied).
+
+## Provider layer
+
+`packages/server/src/ai` resolves the model from environment variables (`config.ts`, `model.ts`) and wraps it with `limitsMiddleware`. The agent depends on the AI SDK's `LanguageModel` interface, not on a vendor.
+
+| `LLM_PROVIDER`      | Client                                                     | Notes                                                                                                                                 |
+| ------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `openai-compatible` | `@ai-sdk/openai` Chat Completions against `LLM_BASE_URL`   | Default. OpenAI, OpenRouter, DeepInfra, vLLM, LM Studio. The key may be omitted only for local hosts                                  |
+| `anthropic`         | `@ai-sdk/anthropic`                                        | `LLM_BASE_URL` stays unset; a leftover URL of one of the shipped OpenAI-compatible presets is rejected so the key is never sent there |
+| `ollama`            | The same Chat Completions client, `http://ollama:11434/v1` | No key. Small local models are noticeably weaker at tool use                                                                          |
+
+Chat Completions is used for every non-Anthropic provider because all of those gateways implement it.
+
+**Anthropic thinking and tool selection.** Claude signs each thinking block against the exact request prefix, including the `tools` list. Progressive selection changes `tools` between steps of one turn, so a replayed thinking block from an earlier step would be rejected with a 400. For models that preserve thinking (`preservedThinkingModel` in `model.ts`: haiku-5-5, sonnet-5-5, opus-5-5, fable-5-1/5-2, mythos-5-1/5-2), `anthropicThinkingBindingMiddleware` sets `thinking: { type: "adaptive", blockBinding: { prefixMismatchBehavior: "drop_block" } }`, which asks the API to drop mismatched blocks instead of failing. Explicit `thinking` provider options override the defaults. Other Anthropic models, `openai-compatible` and `ollama` receive the request unchanged, because older models neither bind blocks nor all accept adaptive thinking. The alternative, keeping `tools` constant for the whole turn, would give up the main token saving.
+
+**Error mapping.** Provider errors are converted to stable codes (`errors.ts`) with fixed messages. Response bodies are never forwarded, since they can contain prompts or keys; the server logs `ai_provider_error` with status, type, message and host only.
 
 ## Prompt design
 
@@ -162,28 +182,28 @@ The tool descriptions carry the same information at the point of use, for exampl
 
 ## Token and cost controls
 
-| Control                                              | Where                              | Effect                                                                                                                                                                                               |
-| ---------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Progressive tool selection                           | `lib/tool-selection.ts`            | Sends 10 tool schemas per call instead of 39                                                                                                                                                         |
-| Input limit (`AI_MAX_INPUT_TOKENS`, default 65,536)  | `limitsMiddleware`                 | Rejects a call whose serialized prompt and tools exceed the limit (`AI_INPUT_LIMIT`). The estimate is UTF-8 bytes plus 1 KiB, deliberately higher than a real token count                            |
-| Output limit (`AI_MAX_OUTPUT_TOKENS`, default 2,048) | `limitsMiddleware`                 | Caps `maxOutputTokens` on every call                                                                                                                                                                 |
-| Step limit (`AI_MAX_STEPS_PER_TURN`, default 8)      | `agent.ts`                         | Stops a turn after that many model steps (`AI_STEP_LIMIT`), with a message not to repeat writes blindly                                                                                              |
-| Timeout                                              | `limitsMiddleware`                 | 120 s per model call                                                                                                                                                                                 |
-| Context compaction                                   | `agent.ts`                         | Eve summarizes history at 75% of the input limit                                                                                                                                                     |
-| Session budgets                                      | `agent.ts` (`limits.sessionUsage`) | 200,000 new input tokens (prompt-cache reads excluded, as Eve's `inputTokens` includes them) or 10,000 output tokens per window; past it Eve pauses the turn with a budget prompt (continue or stop) |
-| Compact model projections                            | each read tool's `toModelOutput`   | Product rows keep only the fields the model needs                                                                                                                                                    |
-| TOON for uniform pages                               | `lib/model-output.ts`              | Tabular text instead of repeated JSON keys when it is at least 10% smaller                                                                                                                           |
-| Server-side aggregates                               | Go analytics and summary endpoints | The model asks for totals instead of summing pages                                                                                                                                                   |
-| Pagination metadata                                  | `lib/results.ts`                   | `hasMore`, `nextOffset` and `total`, so the model knows a page is not the whole list                                                                                                                 |
-| Audit result cap                                     | `lib/results.ts`                   | A result above 60 KB is stored as size, SHA-256 and item count                                                                                                                                       |
-| Per-turn catalog cache                               | `lib/catalog-cache.ts`             | Warehouses and units are reused for 15 s within a turn, scoped to user, session and turn; any write clears it (through the `call.settled` hook)                                                      |
-| CSV as a link                                        | `exportProductsCsv`                | Files never enter the context                                                                                                                                                                        |
+| Control                                              | Where                              | Effect                                                                                                                                                                                                                                 |
+| ---------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Progressive tool selection                           | `lib/tool-selection.ts`            | Sends 10 tool schemas per call instead of 39                                                                                                                                                                                           |
+| Input limit (`AI_MAX_INPUT_TOKENS`, default 65,536)  | `limitsMiddleware`                 | Rejects a call whose serialized prompt and tools exceed the limit (`AI_INPUT_LIMIT`). The estimate is UTF-8 bytes plus 1 KiB, deliberately higher than a real token count                                                              |
+| Output limit (`AI_MAX_OUTPUT_TOKENS`, default 2,048) | `limitsMiddleware`                 | Caps `maxOutputTokens` on every call                                                                                                                                                                                                   |
+| Step limit (`AI_MAX_STEPS_PER_TURN`, default 8)      | `agent.ts`                         | Stops a turn after that many model steps (`AI_STEP_LIMIT`), with a message not to repeat writes blindly                                                                                                                                |
+| Timeout                                              | `limitsMiddleware`                 | 120 s per model call                                                                                                                                                                                                                   |
+| Context compaction                                   | `agent.ts`                         | Eve summarizes history at 75% of the input limit                                                                                                                                                                                       |
+| Session budgets                                      | `agent.ts` (`limits.sessionUsage`) | 200,000 new input tokens (prompt-cache reads excluded, as Eve's `inputTokens` includes them) or 10,000 output tokens per window; past it Eve pauses the turn and the chat shows a budget card (continue or stop) instead of failing it |
+| Compact model projections                            | each read tool's `toModelOutput`   | Product rows keep only the fields the model needs                                                                                                                                                                                      |
+| TOON for uniform pages                               | `lib/model-output.ts`              | Tabular text instead of repeated JSON keys when it is at least 10% smaller                                                                                                                                                             |
+| Server-side aggregates                               | Go analytics and summary endpoints | The model asks for totals instead of summing pages                                                                                                                                                                                     |
+| Pagination metadata                                  | `lib/results.ts`                   | `hasMore`, `nextOffset` and `total`, so the model knows a page is not the whole list                                                                                                                                                   |
+| Audit result cap                                     | `lib/results.ts`                   | A result above 60 KB is stored as size, SHA-256 and item count                                                                                                                                                                         |
+| Per-turn catalog cache                               | `lib/catalog-cache.ts`             | Warehouses and units are reused for 15 s within a turn, scoped to user, session and turn; any write clears it (through the `call.settled` hook)                                                                                        |
+| CSV as a link                                        | `exportProductsCsv`                | Files never enter the context                                                                                                                                                                                                          |
 
 **TOON.** With `AI_TOOL_RESULT_FORMAT=auto`, a successful page of at least four rows whose rows all have the same keys and only scalar values is encoded with [TOON](https://www.npmjs.com/package/@toon-format/toon), which declares the columns once (`items[N]{id,name,...}:`) and then lists the rows. The projection is used only when it is at least 10% smaller in bytes than the JSON. Bytes are a cheap gate, not a tokenizer, so this is not a promise of token savings. The text is prefixed with a reminder that values are data, and the prompt explains how to read the format. Errors, approvals, short or irregular pages and `AI_TOOL_RESULT_FORMAT=json` stay JSON. UI and audit always keep the JSON result.
 
 **What matters most.** Tool schemas are the largest fixed part of each request, so selecting them per task is the main lever; compact encodings of results are a smaller one. This repository does not ship a token benchmark. To compare settings, run the evals with `AI_TOOL_SELECTION` and `AI_TOOL_RESULT_FORMAT` changed and read the token counts on the Agent runs page.
 
-**Cost.** Cost is only an estimate: input and output tokens from the provider multiplied by `LLM_PRICE_INPUT_PER_MTOK` and `LLM_PRICE_OUTPUT_PER_MTOK`. Without prices the page shows no cost. Cached-token discounts are not modeled.
+**Cost.** Cost is only an estimate (`estimateCostUsd` in `packages/server/src/ai/config.ts`): the run's total input tokens times `LLM_PRICE_INPUT_PER_MTOK` plus its output tokens times `LLM_PRICE_OUTPUT_PER_MTOK`, divided by one million. Without prices the page shows no cost, and if only one price is set only that side counts. All input is priced at the input rate: prompt-cache discounts, cache-write surcharges and separate reasoning-token rates are not modeled, and Eve's input count includes cache reads, so for providers with prompt caching the estimate is an upper bound. Treat it as a relative measure between settings, not as a bill.
 
 ## Failure handling
 
@@ -207,20 +227,10 @@ Tool inputs use strict Zod schemas, so unknown fields or wrong types fail before
 ## Observability
 
 - **Agent runs page.** Lists turns with status, model, duration, steps, tool calls, input and output tokens and estimated cost. A run's detail shows a timeline with one row per tool call, its approval state and outcome, plus the matching Go actions (arguments with secret-looking keys dropped, status; `DELETE /v1/products/{id}` is labelled "Archive product" because it archives, and an action the owner rejected shows outcome "rejected"). A tool call the owner rejects (`TOOL_EXECUTION_DENIED`) is an expected outcome: the row shows "Rejected" and the run stays "Completed", while any other failing span makes the run "Error".
-- **Source.** Eve emits OpenTelemetry spans (`agent.step`, one `execute_tool <tool>` span per call with `agent.action.*` and `gen_ai.tool.call.id` attributes, `agent.approval`, and `chat` model spans; Eve 0.x named the tool span `agent.action`, and the reader still accepts both). The agent reads its local trace store through the `eve traces` CLI behind an internal, secret-protected route, keeps only metadata (names, durations, counts, token usage, an error code that matches a safe pattern) and joins it with the actions stored in Go: exact call-id matches first, then only the conversation's actions that started inside the turn's time window (trace start to end, plus about 2 s), so each turn shows its own actions and a pending approval only marks the turn that created it. Prompts and tool outputs are not recorded; trace policy has input and output recording off.
+- **Source.** Eve emits OpenTelemetry spans (`agent.step`, one `execute_tool <tool>` span per call with `agent.action.*` and `gen_ai.tool.call.id` attributes, `agent.approval`, and `chat` model spans). The agent reads its local trace store through the `eve traces` CLI behind an internal, secret-protected route, keeps only metadata (names, durations, counts, token usage, an error code that matches a safe pattern) and joins it with the actions stored in Go: exact call-id matches first, then only the conversation's actions that started inside the turn's time window (trace start to end, plus about 2 s), so each turn shows its own actions and a pending approval only marks the turn that created it. Prompts and tool outputs are not recorded; trace policy has input and output recording off.
 - **Token counts** come from the provider, taken from step spans so they are counted once. Spans are capped (2,000 per run, 500 timeline events).
-- **Retention.** Traces are Eve's local files under `.eve/traces`, on the `eve_data` volume, so they survive restarts and expire by Eve's age and size limits. Eve 1.5 documents the local trace store (`.eve/traces`, `eve traces`, `localTraces()`) only for `eve dev`, and offers no documented switch or public API to record or read it in production (checked in `eve/docs/reference/cli`, `guides/instrumentation/otel` and `guides/deployment`). Outside `eve dev` the spool stays inert unless the internal variable `EVE_DEV_WORKER_APP_ROOT` is set, so the production image still sets it and ships the `eve` CLI in `/opt/eve-cli` (`EVE_CLI_PATH`, a pruned `pnpm deploy`). Revisit this when Eve documents production local traces. With no traces yet, the page is empty. The `agent_actions` table is the durable record of what the agent did.
-- **Logs.** The agent prints one JSON line per model call and tool action with conversation, turn and attempt IDs, duration, outcome and usage, without content.
-
-## Eve 1 notes
-
-Eve 1.5.0 (upgraded from 0.71.2) changed the session protocol (stream version 27) and several APIs. What this project relies on:
-
-- **Chat client.** `useEveAgent` returns `messages`, `view` and `status` (`idle`, `busy`, `resuming`); tool calls are `tool` parts and approvals are interactions (`openInteractions(view)`, answered with `respond([{ interactionId, optionId }])`, options `approve` and `deny`). The `/eve` proxy also allows `POST .../end`.
-- **Sessions from before the upgrade.** A conversation started on 0.71 is "stranded" (`409 session_stranded`) on 1.x. The chat shows an error and "New conversation" starts a fresh one; Go's `agent_actions` history is unaffected.
-- **Budgets.** `limits.sessionUsage` replaces the two fixed token caps. Crossing it pauses the turn and the chat shows a budget card ("Session token budget reached", with Eve's own option labels) instead of failing it. The input side counts `inputTokens - cacheReadTokens` (`sessionBudgetReached` in `model-selection.ts`), because Eve's `inputTokens` includes prompt-cache reads, so a long cached chat does not hit the budget early; the output limit is unchanged.
-- **Instrumentation.** `agent/instrumentation/audit.ts` uses `call.requested` / `call.settled` and `model.call.*`; log events keep their names (`agent_action`, `agent_action_failed`, `model_started`, `model_completed`, `model_failed`), and the attempt ID is now `runId` plus `attempt`.
-- **State in steps.** `defineState` `get()`/`update()` throw inside a `"use step"` function, so `lib/write.ts` steps cannot touch the catalog cache (see above).
+- **Retention.** Traces are Eve's local files under `.eve/traces`, on the `eve_data` volume, so they survive restarts and expire by Eve's age and size limits. With no traces yet, the page is empty. The `agent_actions` table is the durable record of what the agent did. The trace spool is the weakest part of the design; see [Known limitations](#known-limitations).
+- **Logs.** `agent/instrumentation/audit.ts` hooks `call.requested` / `call.settled` and `model.call.*` and prints one JSON line per model call and tool action (`agent_action`, `agent_action_failed`, `model_started`, `model_completed`, `model_failed`) with conversation, turn, `runId` and attempt, duration, outcome and usage, without content.
 
 ## Evals
 
@@ -248,6 +258,26 @@ Eve 1.5.0 (upgraded from 0.71.2) changed the session protocol (stream version 27
 The evals assert on tool calls, approval requests and state read back through the API, rather than on the exact wording of the model's answer. They cost tokens, and results vary by model, so a failure can be a model weakness rather than a bug. Run them with the model you intend to use.
 
 Unit tests (`pnpm test:agent`) cover the parts that do not need a model: that tool schemas are strict and contain no SQL fields, that every tool file belongs to exactly one group or the core set, identity and action-ID derivation, approval registration and payload binding, catalog cache isolation and invalidation, TOON round-trips, and trace parsing without content.
+
+## Design decisions and trade-offs
+
+- **Progressive tool selection over a classifier or a single large catalog.** Tool schemas are the biggest fixed part of every request, so the model starts with 10 core tools and enables groups. A fixed set of named groups is predictable and cannot hide a tool the model needs, unlike a separate retrieval step. The cost is an extra model step when a task needs a group, and the Anthropic block-binding workaround above. `AI_TOOL_SELECTION=all` removes both.
+- **Approval in Go, not in the model loop.** The approval policy is code (`approvalRequired`), evaluated twice and bound to the payload hash. The alternative, asking the model to request confirmation, is advisory only. The cost is that every tool call, read or write, makes a registration call to Go.
+- **Durable workflow tools for writes.** Eve checkpoints a write as a step, so a replay after a crash reuses the same call ID and therefore the same action ID and idempotency key. This is what makes retries safe without a separate deduplication layer in the agent.
+- **A deliberately conservative input estimate.** The input limit uses UTF-8 bytes plus 1 KiB instead of a tokenizer, because providers differ and the check must not depend on one vendor's tokenizer. It over-counts ordinary text, so it can reject a call the provider would accept.
+- **Bytes as the gate for TOON.** TOON is used only when it is at least 10% smaller in bytes. This is a cheap proxy, not a token measurement, and the repository ships no token benchmark.
+- **Session budgets count new input only.** `sessionBudgetReached` uses `inputTokens - cacheReadTokens`. Eve's `inputTokens` includes prompt-cache reads, which dominate a long chat, so counting them would pause conversations that are cheap.
+- **Evals assert behavior.** Tool calls, approval payloads and read-back state are checked; wording is not. This keeps them usable across models, at the cost of not catching poor phrasing.
+
+## Known limitations
+
+- **Production traces depend on an undocumented Eve variable.** Eve 1.5 documents its local trace store (`.eve/traces`, `eve traces`) only for `eve dev` and offers no documented way to record or read it in production. Outside `eve dev` the spool stays inert unless the internal variable `EVE_DEV_WORKER_APP_ROOT` is set, so the production image sets it (see `Dockerfile`) and ships the `eve` CLI in `/opt/eve-cli` (`EVE_CLI_PATH`). An Eve release could change this and leave the Agent runs page empty. `agent_actions` in Go would still record every action.
+- **Cost is an estimate** and ignores prompt-cache discounts (see [Token and cost controls](#token-and-cost-controls)).
+- **Step and budget limits stop a turn but do not roll back.** A write that completed before the limit stays completed; the error message tells the user to check Agent runs before repeating anything.
+- **No token benchmark.** The effect of tool selection and TOON on tokens is argued from design, and can be measured with the evals and the Agent runs page.
+- **Eval results vary by model.** A failure can be a model weakness rather than a bug, and the evals cost tokens.
+- **Stored conversations are tied to the Eve version.** A conversation created under an incompatible Eve protocol may not resume; start a new one. Go's `agent_actions` history is unaffected.
+- **The agent service is trusted.** It holds the shared secret and relays the owner's approval (see [ARCHITECTURE.md](ARCHITECTURE.md#known-limitations)).
 
 ## Adding a tool
 
